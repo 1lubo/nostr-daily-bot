@@ -25,7 +25,8 @@
             padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;
             font-weight: bold; transition: opacity 0.2s;
         }
-        button:hover { opacity: 0.8; }
+        button:hover:not(:disabled) { opacity: 0.8; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary { background: #6366f1; color: white; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-secondary { background: #374151; color: white; }
@@ -88,6 +89,13 @@
         <button class="btn-secondary mt-2" onclick="uploadQuotes()">Upload Quotes</button>
     </div>
 
+    <div class="card" id="postNowCard">
+        <h2>Post Now</h2>
+        <p class="text-sm text-muted mb-2">Immediately post the next quote in rotation to Nostr.</p>
+        <button class="btn-primary" id="postNowBtn" onclick="postNow()" disabled>Post Now</button>
+        <div id="postResult" class="mt-2" style="display:none;"></div>
+    </div>
+
     <script>
         async function api(endpoint, options = {}) {
             try {
@@ -122,6 +130,8 @@
                 document.getElementById('cronInput').value = status.cron;
                 document.getElementById('nextPost').textContent = status.next_post ? new Date(status.next_post).toLocaleString() : 'Not scheduled';
                 document.getElementById('quoteCount').textContent = status.quote_count;
+                // Enable/disable Post Now button based on session status
+                document.getElementById('postNowBtn').disabled = !status.active;
             } catch (e) { console.error(e); }
         }
 
@@ -166,6 +176,34 @@
             showMessage(`Uploaded ${quotes.length} quotes!`);
             loadStatus();
             loadQuotes();
+        }
+
+        async function postNow() {
+            const btn = document.getElementById('postNowBtn');
+            const resultDiv = document.getElementById('postResult');
+
+            btn.disabled = true;
+            btn.textContent = 'Posting...';
+            resultDiv.style.display = 'none';
+
+            try {
+                const data = await api('/post', { method: 'POST' });
+                resultDiv.innerHTML = `
+                    <div style="background: #065f46; padding: 10px; border-radius: 4px;">
+                        <strong>Posted!</strong><br>
+                        <span class="text-sm">${data.message.length > 60 ? data.message.slice(0, 57) + '...' : data.message}</span><br>
+                        <code class="text-sm" style="color: #9ca3af;">${data.event_id || ''}</code>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+                showMessage('Posted successfully!');
+            } catch (e) {
+                resultDiv.innerHTML = `<div style="background: #7f1d1d; padding: 10px; border-radius: 4px;">Failed: ${e.message}</div>`;
+                resultDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Post Now';
+            }
         }
 
         loadStatus();
