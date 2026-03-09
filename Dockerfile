@@ -29,9 +29,10 @@ RUN mkdir src && \
     cargo build --release && \
     rm -rf src static
 
-# Copy actual source code and static assets
+# Copy actual source code, static assets, and migrations
 COPY src ./src
 COPY static ./static
+COPY migrations ./migrations
 
 # Build the real application (touch to invalidate cache)
 RUN touch src/main.rs && cargo build --release
@@ -51,9 +52,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Create data directory for persistence
-RUN mkdir -p /home/nostr/.config/nostr-daily-bot && \
-    chown -R nostr:nostr /home/nostr/.config
+# Create data directory for SQLite database
+RUN mkdir -p /home/nostr/.local/share/nostr-daily-bot && \
+    chown -R nostr:nostr /home/nostr/.local
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/nostr-daily-bot /app/nostr-daily-bot

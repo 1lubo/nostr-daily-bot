@@ -33,8 +33,8 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Serve { port } => run_server(port).await,
-        Commands::Status { server } => cli::cmd_status(&server).await,
-        Commands::ListQuotes { server } => cli::cmd_list_quotes(&server).await,
+        Commands::Status { server, npub } => cli::cmd_status(&server, &npub).await,
+        Commands::ListQuotes { server, npub } => cli::cmd_list_quotes(&server, &npub).await,
     }
 }
 

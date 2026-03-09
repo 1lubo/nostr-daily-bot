@@ -18,9 +18,9 @@ services:
     ports:
       - "3000:3000"
 
-    # Persist quotes and schedule
+    # Persist SQLite database
     volumes:
-      - bot-data:/home/nostr/.config/nostr-daily-bot
+      - bot-data:/home/nostr/.local/share/nostr-daily-bot
 
     # Environment variables
     environment:
