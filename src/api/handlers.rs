@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+
 use axum::{extract::State, http::StatusCode, Json};
 use chrono::Utc;
 use nostr_sdk::ToBech32;
@@ -221,20 +222,23 @@ pub async fn update_schedule(
 // Post action
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub async fn post_now(State(state): State<SharedState>) -> ApiResult<PostResponse> {
+#[derive(Deserialize)]
+pub struct PostNowRequest {
+    pub message: String,
+}
+
+pub async fn post_now(
+    State(state): State<SharedState>,
+    Json(req): Json<PostNowRequest>,
+) -> ApiResult<PostResponse> {
+    let message = req.message.trim();
+    if message.is_empty() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Message cannot be empty"));
+    }
+
     let session = state.session.read().await;
     let session = session.as_ref()
         .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "No active session"))?;
-
-    let quotes = state.quotes.read().await;
-    if quotes.is_empty() {
-        return Err(api_error(StatusCode::BAD_REQUEST, "No quotes configured"));
-    }
-
-    // Get next quote (simple rotation using static counter)
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    let idx = COUNTER.fetch_add(1, Ordering::SeqCst) % quotes.len();
-    let message = &quotes[idx];
 
     let event_id = session.nostr_client.publish_text_note(message).await
         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to post: {}", e)))?;
@@ -243,7 +247,7 @@ pub async fn post_now(State(state): State<SharedState>) -> ApiResult<PostRespons
 
     info!(event_id = %event_id_str, "Posted manually");
     Ok(Json(PostResponse {
-        message: message.clone(),
+        message: message.to_string(),
         event_id: Some(event_id_str),
     }))
 }

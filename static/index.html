@@ -91,7 +91,8 @@
 
     <div class="card" id="postNowCard">
         <h2>Post Now</h2>
-        <p class="text-sm text-muted mb-2">Immediately post the next quote in rotation to Nostr.</p>
+        <p class="text-sm text-muted mb-2">Immediately post a message to Nostr.</p>
+        <textarea id="postNowText" placeholder="Enter your message to post..." style="min-height: 80px;" class="mb-2"></textarea>
         <button class="btn-primary" id="postNowBtn" onclick="postNow()" disabled>Post Now</button>
         <div id="postResult" class="mt-2" style="display:none;"></div>
     </div>
@@ -181,13 +182,23 @@
         async function postNow() {
             const btn = document.getElementById('postNowBtn');
             const resultDiv = document.getElementById('postResult');
+            const textArea = document.getElementById('postNowText');
+            const message = textArea.value.trim();
+
+            if (!message) {
+                showMessage('Please enter a message to post', 'error');
+                return;
+            }
 
             btn.disabled = true;
             btn.textContent = 'Posting...';
             resultDiv.style.display = 'none';
 
             try {
-                const data = await api('/post', { method: 'POST' });
+                const data = await api('/post', {
+                    method: 'POST',
+                    body: JSON.stringify({ message })
+                });
                 resultDiv.innerHTML = `
                     <div style="background: #065f46; padding: 10px; border-radius: 4px;">
                         <strong>Posted!</strong><br>
@@ -196,6 +207,7 @@
                     </div>
                 `;
                 resultDiv.style.display = 'block';
+                textArea.value = '';
                 showMessage('Posted successfully!');
             } catch (e) {
                 resultDiv.innerHTML = `<div style="background: #7f1d1d; padding: 10px; border-radius: 4px;">Failed: ${e.message}</div>`;

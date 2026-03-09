@@ -120,7 +120,7 @@ pub struct AppState {
 | /api/quotes/upload | POST | Replace quotes with `{"quotes": [...]}` |
 | /api/schedule | GET | Get current cron schedule |
 | /api/schedule | PUT | Update schedule with `{"cron": "..."}` |
-| /api/post | POST | Post next quote immediately (requires active session) |
+| /api/post | POST | Post custom message with `{"message": "..."}` (requires active session) |
 
 ## CLI Reference
 
