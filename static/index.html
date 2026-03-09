@@ -56,9 +56,16 @@
 
     <div class="card">
         <h2>Session</h2>
+        <div id="npubDisplay" style="display:none;" class="mb-2">
+            <div class="info-row">
+                <span class="text-muted">Your npub</span>
+                <code id="npubValue" class="text-sm" style="color: #9ca3af;">-</code>
+            </div>
+        </div>
         <div id="sessionInactive">
             <input type="password" id="nsecInput" placeholder="Enter your nsec..." class="mb-2">
             <button class="btn-primary" onclick="startSession()">Start Session</button>
+            <p class="text-sm text-muted mt-2">⚠️ Your nsec is sent to this server. Only use on a server you trust.</p>
         </div>
         <div id="sessionActive" style="display:none;">
             <div class="info-row">
@@ -98,6 +105,10 @@
     </div>
 
     <script>
+        // Session state
+        let sessionToken = localStorage.getItem('sessionToken') || null;
+        let userNpub = localStorage.getItem('userNpub') || null;
+
         async function api(endpoint, options = {}) {
             try {
                 const resp = await fetch(`/api${endpoint}`, {
@@ -120,27 +131,54 @@
             setTimeout(() => el.className = '', 3000);
         }
 
+        function clearSession() {
+            sessionToken = null;
+            userNpub = null;
+            localStorage.removeItem('sessionToken');
+            localStorage.removeItem('userNpub');
+        }
+
         async function loadStatus() {
+            if (!userNpub) {
+                document.getElementById('statusDot').className = 'status-dot inactive';
+                document.getElementById('sessionInactive').style.display = 'block';
+                document.getElementById('sessionActive').style.display = 'none';
+                document.getElementById('npubDisplay').style.display = 'none';
+                document.getElementById('postNowBtn').disabled = true;
+                return;
+            }
+
             try {
-                const status = await api('/status');
-                document.getElementById('statusDot').className = 'status-dot ' + (status.active ? 'active' : 'inactive');
-                document.getElementById('sessionInactive').style.display = status.active ? 'none' : 'block';
-                document.getElementById('sessionActive').style.display = status.active ? 'block' : 'none';
+                const status = await api(`/users/${userNpub}/status`);
+                const isActive = status.active && sessionToken;
+
+                document.getElementById('statusDot').className = 'status-dot ' + (isActive ? 'active' : 'inactive');
+                document.getElementById('sessionInactive').style.display = isActive ? 'none' : 'block';
+                document.getElementById('sessionActive').style.display = isActive ? 'block' : 'none';
+                document.getElementById('npubDisplay').style.display = isActive ? 'block' : 'none';
+                document.getElementById('npubValue').textContent = userNpub.slice(0, 20) + '...';
                 document.getElementById('sessionStarted').textContent = status.session_started_at ? new Date(status.session_started_at).toLocaleString() : '-';
                 document.getElementById('relayCount').textContent = status.relay_count;
                 document.getElementById('cronInput').value = status.cron;
-                document.getElementById('nextPost').textContent = status.next_post ? new Date(status.next_post).toLocaleString() : 'Not scheduled';
                 document.getElementById('quoteCount').textContent = status.quote_count;
-                // Enable/disable Post Now button based on session status
-                document.getElementById('postNowBtn').disabled = !status.active;
-            } catch (e) { console.error(e); }
+                document.getElementById('postNowBtn').disabled = !isActive;
+
+                // If server says not active but we have a token, clear it
+                if (!status.active && sessionToken) {
+                    clearSession();
+                }
+            } catch (e) {
+                console.error(e);
+                clearSession();
+            }
         }
 
         async function loadQuotes() {
+            if (!userNpub) return;
             try {
-                const data = await api('/quotes');
+                const data = await api(`/users/${userNpub}/quotes`);
                 const list = document.getElementById('quotesList');
-                list.innerHTML = data.quotes.map((q, i) => 
+                list.innerHTML = data.quotes.map((q, i) =>
                     `<div class="quote-item">${i + 1}. ${q.length > 80 ? q.slice(0, 77) + '...' : q}</div>`
                 ).join('');
             } catch (e) { console.error(e); }
@@ -149,30 +187,48 @@
         async function startSession() {
             const nsec = document.getElementById('nsecInput').value.trim();
             if (!nsec) return showMessage('Please enter your nsec', 'error');
-            await api('/session/start', { method: 'POST', body: JSON.stringify({ nsec }) });
-            document.getElementById('nsecInput').value = '';
-            showMessage('Session started!');
-            loadStatus();
+
+            try {
+                const resp = await api('/session/start', { method: 'POST', body: JSON.stringify({ nsec }) });
+                sessionToken = resp.token;
+                userNpub = resp.npub;
+                localStorage.setItem('sessionToken', sessionToken);
+                localStorage.setItem('userNpub', userNpub);
+                document.getElementById('nsecInput').value = '';
+                showMessage('Session started!');
+                loadStatus();
+                loadQuotes();
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         async function stopSession() {
-            await api('/session/stop', { method: 'POST' });
-            showMessage('Session stopped');
+            if (!sessionToken) return;
+            try {
+                await api('/session/stop', { method: 'POST', body: JSON.stringify({ token: sessionToken }) });
+                showMessage('Session stopped');
+            } catch (e) {
+                console.error(e);
+            }
+            clearSession();
             loadStatus();
         }
 
         async function updateSchedule() {
+            if (!sessionToken) return showMessage('No active session', 'error');
             const cron = document.getElementById('cronInput').value.trim();
-            await api('/schedule', { method: 'PUT', body: JSON.stringify({ cron }) });
+            await api('/schedule', { method: 'PUT', body: JSON.stringify({ token: sessionToken, cron }) });
             showMessage('Schedule updated!');
             loadStatus();
         }
 
         async function uploadQuotes() {
+            if (!sessionToken) return showMessage('No active session', 'error');
             const text = document.getElementById('quotesTextarea').value.trim();
             const quotes = text.split('\n').map(q => q.trim()).filter(q => q);
             if (!quotes.length) return showMessage('Enter at least one quote', 'error');
-            await api('/quotes/upload', { method: 'POST', body: JSON.stringify({ quotes }) });
+            await api('/quotes', { method: 'POST', body: JSON.stringify({ token: sessionToken, quotes }) });
             document.getElementById('quotesTextarea').value = '';
             showMessage(`Uploaded ${quotes.length} quotes!`);
             loadStatus();
@@ -180,6 +236,7 @@
         }
 
         async function postNow() {
+            if (!sessionToken) return showMessage('No active session', 'error');
             const btn = document.getElementById('postNowBtn');
             const resultDiv = document.getElementById('postResult');
             const textArea = document.getElementById('postNowText');
@@ -197,7 +254,7 @@
             try {
                 const data = await api('/post', {
                     method: 'POST',
-                    body: JSON.stringify({ message })
+                    body: JSON.stringify({ token: sessionToken, message })
                 });
                 resultDiv.innerHTML = `
                     <div style="background: #065f46; padding: 10px; border-radius: 4px;">

@@ -3,11 +3,13 @@
 //! A learning project for Rust backend development.
 
 mod api;
+mod auth;
 mod cli;
 mod config;
+mod db;
+mod models;
 mod nostr;
 mod observability;
-mod persistence;
 mod scheduler;
 mod state;
 mod web;
@@ -21,9 +23,9 @@ use tokio::net::TcpListener;
 use tracing::info;
 
 use crate::cli::{Cli, Commands};
+use crate::db::init_db;
 use crate::observability::{init_logging, ObservabilityConfig};
-use crate::persistence::{load_quotes, load_schedule};
-use crate::state::{AppState, ScheduleState, SharedState};
+use crate::state::{AppState, SharedState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -43,19 +45,12 @@ async fn run_server(port: u16) -> Result<()> {
 
     info!("Nostr Daily Bot v{} starting", env!("CARGO_PKG_VERSION"));
 
-    // Load persisted data
-    let quotes = load_quotes().unwrap_or_default();
-    let schedule = load_schedule().unwrap_or_default();
-
-    info!(quotes = quotes.len(), cron = %schedule.cron, "Loaded configuration");
+    // Initialize database
+    let db = init_db().await?;
+    info!("Database initialized");
 
     // Create app state
-    let state: SharedState = Arc::new(AppState::new(port));
-    *state.quotes.write().await = quotes;
-    *state.schedule.write().await = ScheduleState {
-        cron: schedule.cron,
-        next_post: None,
-    };
+    let state: SharedState = Arc::new(AppState::new(db, port));
 
     // Build router
     let app = Router::new()

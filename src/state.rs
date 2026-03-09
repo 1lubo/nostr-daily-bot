@@ -1,10 +1,12 @@
 //! Application state management.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use tokio::sync::RwLock;
 
+use crate::db::DbPool;
 use crate::nostr::NostrClient;
 use crate::scheduler::Scheduler;
 
@@ -13,59 +15,67 @@ pub type SharedState = Arc<AppState>;
 
 /// Main application state, shared across all handlers.
 pub struct AppState {
-    /// Active session (if user has entered nsec).
-    pub session: RwLock<Option<ActiveSession>>,
-    /// List of quotes to post.
-    pub quotes: RwLock<Vec<String>>,
-    /// Current schedule configuration.
-    pub schedule: RwLock<ScheduleState>,
-    /// Active scheduler (if session is running).
-    pub scheduler: RwLock<Option<Scheduler>>,
+    /// Database connection pool.
+    pub db: DbPool,
+    /// Active sessions by npub.
+    pub sessions: RwLock<HashMap<String, ActiveSession>>,
+    /// Active schedulers by npub.
+    pub schedulers: RwLock<HashMap<String, Scheduler>>,
     /// Port the server is running on.
     pub port: u16,
 }
 
 /// Active session state (when user has entered nsec).
 pub struct ActiveSession {
+    /// User's npub (public key).
+    pub npub: String,
+    /// Session token for authentication.
+    pub token: String,
     /// Connected Nostr client.
     pub nostr_client: Arc<NostrClient>,
     /// When the session started.
     pub started_at: DateTime<Utc>,
 }
 
-/// Schedule configuration state.
-#[derive(Clone)]
-pub struct ScheduleState {
-    /// Cron expression.
-    pub cron: String,
-    /// Next scheduled post time (if scheduler is running).
-    pub next_post: Option<DateTime<Utc>>,
-}
-
-impl Default for ScheduleState {
-    fn default() -> Self {
-        Self {
-            cron: "0 0 9 * * *".to_string(), // Daily at 9 AM UTC
-            next_post: None,
-        }
-    }
-}
-
 impl AppState {
-    /// Create new app state with defaults.
-    pub fn new(port: u16) -> Self {
+    /// Create new app state.
+    pub fn new(db: DbPool, port: u16) -> Self {
         Self {
-            session: RwLock::new(None),
-            quotes: RwLock::new(Vec::new()),
-            schedule: RwLock::new(ScheduleState::default()),
-            scheduler: RwLock::new(None),
+            db,
+            sessions: RwLock::new(HashMap::new()),
+            schedulers: RwLock::new(HashMap::new()),
             port,
         }
     }
 
-    /// Check if a session is currently active.
-    pub async fn is_session_active(&self) -> bool {
-        self.session.read().await.is_some()
+    /// Check if a session exists for the given npub.
+    pub async fn has_session(&self, npub: &str) -> bool {
+        self.sessions.read().await.contains_key(npub)
+    }
+
+    /// Get a session by token.
+    pub async fn get_session_by_token(&self, token: &str) -> Option<String> {
+        let sessions = self.sessions.read().await;
+        for (npub, session) in sessions.iter() {
+            if session.token == token {
+                return Some(npub.clone());
+            }
+        }
+        None
+    }
+
+    /// Get session for a user.
+    pub async fn get_session(&self, npub: &str) -> Option<Arc<NostrClient>> {
+        self.sessions
+            .read()
+            .await
+            .get(npub)
+            .map(|s| Arc::clone(&s.nostr_client))
+    }
+
+    /// Get the number of active sessions.
+    pub async fn active_session_count(&self) -> usize {
+        self.sessions.read().await.len()
     }
 }
 
