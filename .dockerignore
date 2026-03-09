@@ -1,0 +1,31 @@
+# Build artifacts
+target/
+
+# Git
+.git/
+.gitignore
+
+# Documentation and specs
+*.md
+plan-*.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files (secrets)
+.env
+*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+

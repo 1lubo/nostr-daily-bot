@@ -1,0 +1,36 @@
+# ============================================================================
+# Nostr Daily Bot - Production Overrides
+# ============================================================================
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ============================================================================
+
+services:
+  bot:
+    # Use pre-built image instead of building
+    # image: ghcr.io/your-username/nostr-daily-bot:latest
+    
+    # Production environment
+    environment:
+      - RUST_LOG=info,nostr_daily_bot=info
+      - LOG_FORMAT=json
+    
+    # Always restart in production
+    restart: always
+    
+    # Stricter resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
+        reservations:
+          memory: 16M
+          cpus: '0.05'
+    
+    # Production logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
