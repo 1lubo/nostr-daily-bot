@@ -11,12 +11,13 @@ urls = [
 
 [schedule]
 # Cron expression for posting schedule
-# Format: sec min hour day_of_month month day_of_week year
+# Format: sec min hour day_of_month month day_of_week
 # Examples:
-#   "0 0 9 * * * *"    - Every day at 9:00 AM
-#   "0 0 */6 * * * *"  - Every 6 hours
-#   "0 30 8 * * Mon-Fri *" - 8:30 AM on weekdays
-cron = "0 0 9 * * * *"
+#   "0 0 9 * * *"    - Every day at 9:00 AM
+#   "0 0 */6 * * *"  - Every 6 hours
+#   "0 30 8 * * 1-5" - 8:30 AM on weekdays (Mon-Fri)
+#   "*/30 * * * * *" - Every 30 seconds (for testing)
+cron = "0 0 9 * * *"
 
 # Timezone for schedule (default: UTC)
 timezone = "UTC"

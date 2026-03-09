@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_validate_cron_valid() {
-        assert!(validate_cron("0 0 */6 * * * *").is_ok());
+        assert!(validate_cron("0 0 */6 * * *").is_ok());
     }
 
     #[test]
