@@ -14,6 +14,7 @@ A Rust application that posts scheduled messages to Nostr relays. Features a web
 │  - serve              │  - Session management (nsec)         │
 │  - status             │  - Quotes upload/view                │
 │  - list-quotes        │  - Schedule editing                  │
+│                       │  - Post Now (immediate posting)      │
 ├─────────────────────────────────────────────────────────────┤
 │                      REST API                               │
 │  POST /api/session/start    PUT  /api/schedule              │
@@ -119,6 +120,7 @@ pub struct AppState {
 | /api/quotes/upload | POST | Replace quotes with `{"quotes": [...]}` |
 | /api/schedule | GET | Get current cron schedule |
 | /api/schedule | PUT | Update schedule with `{"cron": "..."}` |
+| /api/post | POST | Post next quote immediately (requires active session) |
 
 ## CLI Reference
 
