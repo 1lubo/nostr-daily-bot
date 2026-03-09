@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nostr Daily Bot</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e; color: #eee; padding: 20px; max-width: 600px; margin: 0 auto;
+        }
+        h1 { margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .status-dot.active { background: #4ade80; }
+        .status-dot.inactive { background: #f87171; }
+        .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .card h2 { font-size: 14px; color: #888; margin-bottom: 12px; text-transform: uppercase; }
+        input, textarea { 
+            width: 100%; padding: 10px; border: 1px solid #333; border-radius: 4px;
+            background: #0f0f23; color: #eee; font-family: monospace;
+        }
+        textarea { min-height: 120px; resize: vertical; }
+        button {
+            padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;
+            font-weight: bold; transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.8; }
+        .btn-primary { background: #6366f1; color: white; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-secondary { background: #374151; color: white; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .row { display: flex; gap: 10px; align-items: center; }
+        .flex-1 { flex: 1; }
+        .mt-2 { margin-top: 8px; }
+        .mb-2 { margin-bottom: 8px; }
+        .text-sm { font-size: 14px; }
+        .text-muted { color: #888; }
+        .quotes-list { max-height: 200px; overflow-y: auto; }
+        .quote-item { padding: 8px; background: #0f0f23; border-radius: 4px; margin-bottom: 4px; font-size: 14px; }
+        .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; }
+        .info-row:last-child { border-bottom: none; }
+        #message { padding: 10px; border-radius: 4px; margin-bottom: 16px; display: none; }
+        #message.success { display: block; background: #065f46; }
+        #message.error { display: block; background: #7f1d1d; }
+    </style>
+</head>
+<body>
+    <h1>
+        <span>Nostr Daily Bot</span>
+        <span id="statusDot" class="status-dot inactive"></span>
+    </h1>
+    
+    <div id="message"></div>
+
+    <div class="card">
+        <h2>Session</h2>
+        <div id="sessionInactive">
+            <input type="password" id="nsecInput" placeholder="Enter your nsec..." class="mb-2">
+            <button class="btn-primary" onclick="startSession()">Start Session</button>
+        </div>
+        <div id="sessionActive" style="display:none;">
+            <div class="info-row">
+                <span class="text-muted">Started</span>
+                <span id="sessionStarted">-</span>
+            </div>
+            <div class="info-row">
+                <span class="text-muted">Relays</span>
+                <span id="relayCount">0</span>
+            </div>
+            <button class="btn-danger mt-2" onclick="stopSession()">Stop Session</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Schedule</h2>
+        <div class="row">
+            <input type="text" id="cronInput" class="flex-1" placeholder="0 0 9 * * *">
+            <button class="btn-secondary btn-sm" onclick="updateSchedule()">Update</button>
+        </div>
+        <p class="text-sm text-muted mt-2">Next post: <span id="nextPost">-</span></p>
+    </div>
+
+    <div class="card">
+        <h2>Quotes (<span id="quoteCount">0</span>)</h2>
+        <div id="quotesList" class="quotes-list mb-2"></div>
+        <textarea id="quotesTextarea" placeholder="Enter quotes, one per line..."></textarea>
+        <button class="btn-secondary mt-2" onclick="uploadQuotes()">Upload Quotes</button>
+    </div>
+
+    <script>
+        async function api(endpoint, options = {}) {
+            try {
+                const resp = await fetch(`/api${endpoint}`, {
+                    headers: { 'Content-Type': 'application/json' },
+                    ...options
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.message || 'Request failed');
+                return data;
+            } catch (e) {
+                showMessage(e.message, 'error');
+                throw e;
+            }
+        }
+
+        function showMessage(text, type = 'success') {
+            const el = document.getElementById('message');
+            el.textContent = text;
+            el.className = type;
+            setTimeout(() => el.className = '', 3000);
+        }
+
+        async function loadStatus() {
+            try {
+                const status = await api('/status');
+                document.getElementById('statusDot').className = 'status-dot ' + (status.active ? 'active' : 'inactive');
+                document.getElementById('sessionInactive').style.display = status.active ? 'none' : 'block';
+                document.getElementById('sessionActive').style.display = status.active ? 'block' : 'none';
+                document.getElementById('sessionStarted').textContent = status.session_started_at ? new Date(status.session_started_at).toLocaleString() : '-';
+                document.getElementById('relayCount').textContent = status.relay_count;
+                document.getElementById('cronInput').value = status.cron;
+                document.getElementById('nextPost').textContent = status.next_post ? new Date(status.next_post).toLocaleString() : 'Not scheduled';
+                document.getElementById('quoteCount').textContent = status.quote_count;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadQuotes() {
+            try {
+                const data = await api('/quotes');
+                const list = document.getElementById('quotesList');
+                list.innerHTML = data.quotes.map((q, i) => 
+                    `<div class="quote-item">${i + 1}. ${q.length > 80 ? q.slice(0, 77) + '...' : q}</div>`
+                ).join('');
+            } catch (e) { console.error(e); }
+        }
+
+        async function startSession() {
+            const nsec = document.getElementById('nsecInput').value.trim();
+            if (!nsec) return showMessage('Please enter your nsec', 'error');
+            await api('/session/start', { method: 'POST', body: JSON.stringify({ nsec }) });
+            document.getElementById('nsecInput').value = '';
+            showMessage('Session started!');
+            loadStatus();
+        }
+
+        async function stopSession() {
+            await api('/session/stop', { method: 'POST' });
+            showMessage('Session stopped');
+            loadStatus();
+        }
+
+        async function updateSchedule() {
+            const cron = document.getElementById('cronInput').value.trim();
+            await api('/schedule', { method: 'PUT', body: JSON.stringify({ cron }) });
+            showMessage('Schedule updated!');
+            loadStatus();
+        }
+
+        async function uploadQuotes() {
+            const text = document.getElementById('quotesTextarea').value.trim();
+            const quotes = text.split('\n').map(q => q.trim()).filter(q => q);
+            if (!quotes.length) return showMessage('Enter at least one quote', 'error');
+            await api('/quotes/upload', { method: 'POST', body: JSON.stringify({ quotes }) });
+            document.getElementById('quotesTextarea').value = '';
+            showMessage(`Uploaded ${quotes.length} quotes!`);
+            loadStatus();
+            loadQuotes();
+        }
+
+        loadStatus();
+        loadQuotes();
+        setInterval(loadStatus, 10000);
+    </script>
+</body>
+</html>
+

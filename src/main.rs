@@ -2,117 +2,85 @@
 //!
 //! A learning project for Rust backend development.
 
+mod api;
+mod cli;
 mod config;
 mod nostr;
 mod observability;
+mod persistence;
 mod scheduler;
+mod state;
+mod web;
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use axum::{routing::get, Router};
+use clap::Parser;
+use tokio::net::TcpListener;
 use tracing::info;
 
-use crate::config::Config;
-use crate::nostr::NostrClient;
-use crate::observability::{init_logging, spans, ObservabilityConfig};
-use crate::scheduler::{run_until_shutdown, Scheduler, SchedulerConfig};
+use crate::cli::{Cli, Commands};
+use crate::observability::{init_logging, ObservabilityConfig};
+use crate::persistence::{load_quotes, load_schedule};
+use crate::state::{AppState, ScheduleState, SharedState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. Initialize observability FIRST (before any logging)
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Serve { port } => run_server(port).await,
+        Commands::Status { server } => cli::cmd_status(&server).await,
+        Commands::ListQuotes { server } => cli::cmd_list_quotes(&server).await,
+    }
+}
+
+async fn run_server(port: u16) -> Result<()> {
+    // Initialize logging
     let log_config = ObservabilityConfig::from_env();
     init_logging(log_config);
 
-    // 2. Enter startup span for tracing
-    let _startup = spans::startup_span().entered();
     info!("Nostr Daily Bot v{} starting", env!("CARGO_PKG_VERSION"));
 
-    // 3. Load and validate configuration
-    let config = Config::load("config.toml").context("Failed to load configuration")?;
-    info!(
-        relay_count = config.relays.urls.len(),
-        template_count = config.messages.templates.len(),
-        "Configuration loaded"
-    );
+    // Load persisted data
+    let quotes = load_quotes().unwrap_or_default();
+    let schedule = load_schedule().unwrap_or_default();
 
-    // 4. Initialize Nostr client
-    let keys = NostrClient::keys_parse(&config.get_private_key()?)
-        .context("Invalid private key format")?;
-    let nostr_client = Arc::new(NostrClient::with_keys(keys).await?);
+    info!(quotes = quotes.len(), cron = %schedule.cron, "Loaded configuration");
 
-    // 5. Connect to relays
-    nostr_client
-        .connect()
-        .await
-        .context("Failed to connect to relays")?;
-    info!(
-        connected = nostr_client.connected_relay_count().await,
-        "Connected to relays"
-    );
+    // Create app state
+    let state: SharedState = Arc::new(AppState::new(port));
+    *state.quotes.write().await = quotes;
+    *state.schedule.write().await = ScheduleState {
+        cron: schedule.cron,
+        next_post: None,
+    };
 
-    // 6. Setup scheduler with posting job
-    let scheduler = setup_scheduler(&config, Arc::clone(&nostr_client)).await?;
+    // Build router
+    let app = Router::new()
+        .merge(api::create_router(Arc::clone(&state)))
+        .fallback(get(web::static_handler));
 
-    // 7. Run until shutdown signal (SIGTERM/SIGINT)
-    info!("Bot running. Press Ctrl+C to stop.");
-    run_until_shutdown(scheduler).await?;
+    // Start server
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = TcpListener::bind(&addr).await?;
 
-    // 8. Cleanup
-    nostr_client.shutdown().await;
+    info!(address = %addr, "Server started");
+    info!("Web UI available at http://localhost:{}", port);
+
+    // Run with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
     info!("Shutdown complete");
-
     Ok(())
 }
 
-/// Setup the scheduler with the posting job
-async fn setup_scheduler(config: &Config, nostr_client: Arc<NostrClient>) -> Result<Scheduler> {
-    let scheduler_config = SchedulerConfig {
-        cron_expression: config.schedule.cron.clone(),
-        timezone: config.schedule.timezone.clone(),
-    };
-
-    let mut scheduler = Scheduler::new(scheduler_config)
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
         .await
-        .context("Failed to create scheduler")?;
-
-    // Clone for the closure
-    let client = Arc::clone(&nostr_client);
-    let templates = Arc::new(config.messages.templates.clone());
-    let template_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-    // Register the posting job
-    scheduler
-        .register_posting_job(Arc::new(move || {
-            let client = Arc::clone(&client);
-            let templates = Arc::clone(&templates);
-            let index = Arc::clone(&template_index);
-
-            Box::pin(async move {
-                let operation_id = spans::generate_operation_id();
-
-                // Get next message (sequential rotation)
-                let idx = index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let message = &templates[idx % templates.len()];
-
-                info!(
-                    operation_id = %operation_id,
-                    message_index = idx % templates.len(),
-                    "Posting scheduled message"
-                );
-
-                match client.publish_text_note(message).await {
-                    Ok(event_id) => {
-                        info!(operation_id = %operation_id, %event_id, "Posted successfully");
-                    }
-                    Err(e) => {
-                        tracing::error!(operation_id = %operation_id, error = %e, "Failed to post message");
-                    }
-                }
-            })
-        }))
-        .await
-        .context("Failed to register posting job")?;
-
-    Ok(scheduler)
+        .expect("Failed to install Ctrl+C handler");
+    info!("Shutdown signal received");
 }
-

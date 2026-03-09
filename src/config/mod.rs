@@ -4,6 +4,8 @@ mod loader;
 mod types;
 mod validation;
 
+// Re-export for backward compatibility (used by old CLI mode)
+#[allow(unused_imports)]
 pub use types::Config;
 
 use thiserror::Error;
