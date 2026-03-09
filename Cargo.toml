@@ -1,0 +1,47 @@
+[package]
+name = "nostr-daily-bot"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["1Lubo <1lubo@pm.me>"]
+description = "A bot that posts daily messages to Nostr relays"
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "signal"] }
+
+# Nostr protocol
+nostr-sdk = "0.39"
+
+# Scheduling
+tokio-cron-scheduler = "0.13"
+chrono-tz = "0.10"
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+
+# Utilities
+uuid = { version = "1.11", features = ["v4"] }
+cron = "0.13"
+shellexpand = "3.1"
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3.14"
+tokio-test = "0.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
