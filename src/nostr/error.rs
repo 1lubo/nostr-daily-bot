@@ -8,13 +8,6 @@ pub enum NostrError {
     #[error("Invalid private key format: {0}")]
     InvalidKey(String),
 
-    #[error("Failed to connect to relay '{url}': {source}")]
-    ConnectionFailed {
-        url: String,
-        #[source]
-        source: nostr_sdk::client::Error,
-    },
-
     #[error("No relays connected - cannot publish")]
     NoRelaysConnected,
 

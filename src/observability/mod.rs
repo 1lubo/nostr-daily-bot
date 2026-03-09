@@ -1,7 +1,5 @@
 //! Observability module for logging and tracing.
 
-pub mod spans;
-
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 

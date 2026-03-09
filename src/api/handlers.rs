@@ -87,7 +87,7 @@ pub async fn start_session(
     let keys = NostrClient::keys_parse(&req.nsec)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, format!("Invalid nsec: {}", e)))?;
 
-    let nostr_client = NostrClient::with_keys(keys.clone())
+    let nostr_client = NostrClient::with_keys(keys)
         .await
         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create client: {}", e)))?;
     let nostr_client = Arc::new(nostr_client);
@@ -96,7 +96,6 @@ pub async fn start_session(
         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to connect: {}", e)))?;
 
     let session = ActiveSession {
-        keys,
         nostr_client: Arc::clone(&nostr_client),
         started_at: Utc::now(),
     };

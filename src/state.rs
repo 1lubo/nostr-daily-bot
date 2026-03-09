@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use nostr_sdk::Keys;
 use tokio::sync::RwLock;
 
 use crate::nostr::NostrClient;
@@ -28,8 +27,6 @@ pub struct AppState {
 
 /// Active session state (when user has entered nsec).
 pub struct ActiveSession {
-    /// Nostr keys derived from nsec.
-    pub keys: Keys,
     /// Connected Nostr client.
     pub nostr_client: Arc<NostrClient>,
     /// When the session started.
@@ -69,15 +66,6 @@ impl AppState {
     /// Check if a session is currently active.
     pub async fn is_session_active(&self) -> bool {
         self.session.read().await.is_some()
-    }
-
-    /// Get the number of connected relays (if session active).
-    pub async fn connected_relay_count(&self) -> usize {
-        if let Some(ref session) = *self.session.read().await {
-            session.nostr_client.connected_relay_count().await
-        } else {
-            0
-        }
     }
 }
 

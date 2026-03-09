@@ -29,7 +29,6 @@ pub struct SchedulerConfig {
 pub struct Scheduler {
     inner: Option<JobScheduler>,
     config: SchedulerConfig,
-    posting_job_id: Option<Uuid>,
 }
 
 impl Scheduler {
@@ -44,7 +43,6 @@ impl Scheduler {
         Ok(Self {
             inner: Some(scheduler),
             config,
-            posting_job_id: None,
         })
     }
 
@@ -92,9 +90,7 @@ impl Scheduler {
             .await
             .map_err(|e| SchedulerError::JobAddition(e.to_string()))?;
 
-        self.posting_job_id = Some(job_id);
         info!(job_id = %job_id, "Posting job registered");
-
         Ok(job_id)
     }
 
@@ -126,45 +122,5 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Check if the scheduler is running.
-    pub fn is_running(&self) -> bool {
-        self.inner.is_some()
-    }
-}
-
-/// Run the scheduler until a shutdown signal is received.
-pub async fn run_until_shutdown(mut scheduler: Scheduler) -> Result<()> {
-    scheduler.start().await?;
-
-    info!("Scheduler running. Waiting for shutdown signal...");
-
-    wait_for_shutdown_signal().await;
-
-    info!("Shutdown signal received");
-    scheduler.stop().await?;
-
-    Ok(())
-}
-
-/// Wait for SIGTERM or SIGINT.
-async fn wait_for_shutdown_signal() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-
-        let mut sigterm = signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
-        let mut sigint = signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
-
-        tokio::select! {
-            _ = sigterm.recv() => info!("Received SIGTERM"),
-            _ = sigint.recv() => info!("Received SIGINT"),
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-        info!("Received Ctrl+C");
-    }
 }
 

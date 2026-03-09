@@ -42,7 +42,6 @@ nostr-daily-bot/
 ├── .dockerignore
 ├── .gitignore
 ├── .env.example
-├── config.toml              # Legacy config (optional)
 ├── SPEC.md                  # This file
 ├── static/
 │   └── index.html           # Embedded web UI
@@ -57,10 +56,7 @@ nostr-daily-bot/
     │   ├── routes.rs        # API route definitions
     │   └── handlers.rs      # Request handlers
     ├── config/
-    │   ├── mod.rs           # ConfigError
-    │   ├── types.rs         # Config structs (legacy)
-    │   ├── loader.rs        # TOML loading (legacy)
-    │   └── validation.rs    # Validation functions
+    │   └── mod.rs           # Placeholder module
     ├── nostr/
     │   ├── mod.rs           # NostrClient wrapper
     │   └── error.rs         # NostrError enum
@@ -68,8 +64,7 @@ nostr-daily-bot/
     │   ├── mod.rs           # Scheduler wrapper
     │   └── error.rs         # SchedulerError enum
     └── observability/
-        ├── mod.rs           # Logging initialization
-        └── spans.rs         # Tracing utilities
+        └── mod.rs           # Logging initialization
 ```
 
 ## Key Components
