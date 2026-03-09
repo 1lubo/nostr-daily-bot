@@ -91,11 +91,20 @@ pub struct AppState {
 - **Schedule**: Cron expression, loaded from schedule.json
 - **Scheduler**: Active when session is running
 
+### Startup Behavior
+
+1. Server starts **without requiring a private key**
+2. Loads quotes.json and schedule.json (or defaults)
+3. Web UI available immediately
+4. User enters nsec via web UI to start posting session
+5. Scheduler activates only after session starts
+
 ### Security
 
-- **nsec handling**: Session-only, never persisted to disk
+- **nsec handling**: Session-only, never persisted to disk. Entered via web UI.
+- **No private key required at startup**: Server runs without nsec, waits for user input
 - **Docker**: Runs as non-root user, dropped capabilities
-- **No secrets in config files**: Use env vars or enter via UI
+- **No secrets in config files**: Enter nsec via UI each time
 
 ### Persistence
 
