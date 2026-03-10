@@ -8,7 +8,7 @@ use crate::models::{User, UserInput};
 /// Get a user by npub.
 pub async fn get_user(pool: &SqlitePool, npub: &str) -> Result<Option<User>> {
     let row = sqlx::query(
-        "SELECT npub, display_name, cron, timezone, created_at, updated_at FROM users WHERE npub = ?"
+        "SELECT npub, display_name, cron, timezone, auth_mode, created_at, updated_at FROM users WHERE npub = ?"
     )
     .bind(npub)
     .fetch_optional(pool)
@@ -20,6 +20,7 @@ pub async fn get_user(pool: &SqlitePool, npub: &str) -> Result<Option<User>> {
         display_name: r.get("display_name"),
         cron: r.get("cron"),
         timezone: r.get("timezone"),
+        auth_mode: r.get("auth_mode"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }))
@@ -88,3 +89,14 @@ pub async fn user_exists(pool: &SqlitePool, npub: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
+/// Update user's auth mode.
+pub async fn update_auth_mode(pool: &SqlitePool, npub: &str, auth_mode: &str) -> Result<()> {
+    sqlx::query("UPDATE users SET auth_mode = ?, updated_at = datetime('now') WHERE npub = ?")
+        .bind(auth_mode)
+        .bind(npub)
+        .execute(pool)
+        .await
+        .context("Failed to update auth mode")?;
+
+    Ok(())
+}

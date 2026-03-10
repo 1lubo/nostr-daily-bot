@@ -54,13 +54,18 @@ pub async fn init_db() -> Result<DbPool> {
 async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     info!("Running database migrations");
 
-    // Read and execute migration file
-    let migration_sql = include_str!("../../migrations/001_initial.sql");
+    // Run all migrations in order
+    let migrations = [
+        include_str!("../../migrations/001_initial.sql"),
+        include_str!("../../migrations/002_presigning.sql"),
+    ];
 
-    sqlx::raw_sql(migration_sql)
-        .execute(pool)
-        .await
-        .context("Failed to run migrations")?;
+    for (i, migration_sql) in migrations.iter().enumerate() {
+        sqlx::raw_sql(migration_sql)
+            .execute(pool)
+            .await
+            .with_context(|| format!("Failed to run migration {}", i + 1))?;
+    }
 
     info!("Migrations complete");
     Ok(())
