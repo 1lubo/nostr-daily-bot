@@ -2,7 +2,7 @@
 # Nostr Daily Bot - Multi-stage Dockerfile
 # ============================================================================
 # Build: docker build -t nostr-daily-bot .
-# Run:   docker run -p 3000:3000 nostr-daily-bot
+# Run:   docker run -p 3000:3000 -e DATABASE_URL=... nostr-daily-bot
 # ============================================================================
 
 # -----------------------------------------------------------------------------
@@ -18,24 +18,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy manifests first for better layer caching
+# Copy everything needed for build
 COPY Cargo.toml Cargo.lock ./
-
-# Create dummy src and static to cache dependencies
-RUN mkdir src && \
-    mkdir static && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "<html></html>" > static/index.html && \
-    cargo build --release && \
-    rm -rf src static
-
-# Copy actual source code, static assets, and migrations
 COPY src ./src
 COPY static ./static
 COPY migrations ./migrations
 
-# Build the real application (touch to invalidate cache)
-RUN touch src/main.rs && cargo build --release
+# Build the application
+RUN cargo build --release
 
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime
@@ -51,10 +41,6 @@ RUN apt-get update && apt-get install -y \
     && useradd -m -u 1000 -s /bin/bash nostr
 
 WORKDIR /app
-
-# Create data directory for SQLite database
-RUN mkdir -p /home/nostr/.local/share/nostr-daily-bot && \
-    chown -R nostr:nostr /home/nostr/.local
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/nostr-daily-bot /app/nostr-daily-bot
@@ -74,7 +60,7 @@ EXPOSE 3000
 
 # Health check via HTTP endpoint
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3000/api/status || exit 1
+    CMD curl -f http://localhost:3000/ || exit 1
 
 # Default command: start the web server
 ENTRYPOINT ["/app/nostr-daily-bot"]
