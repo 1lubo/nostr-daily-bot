@@ -60,8 +60,8 @@ impl ObservabilityConfig {
 
 /// Initialize the global tracing subscriber.
 pub fn init_logging(config: ObservabilityConfig) {
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(config.default_level.to_string()));
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(config.default_level.to_string()));
 
     let span_events = if config.log_span_events {
         FmtSpan::NEW | FmtSpan::CLOSE
@@ -97,4 +97,3 @@ pub fn init_logging(config: ObservabilityConfig) {
         }
     }
 }
-

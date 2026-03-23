@@ -40,6 +40,7 @@ const MAX_EVENT_AGE_SECONDS: i64 = 300; // 5 minutes
 /// Result of verifying a signed authentication event.
 pub struct VerifyResult {
     /// The verified public key (hex).
+    #[allow(dead_code)]
     pub pubkey_hex: String,
     /// The public key as npub.
     pub npub: String,
@@ -59,7 +60,9 @@ pub fn verify_signed_event(
     expected_challenge_id: &str,
 ) -> Result<VerifyResult, String> {
     // 1. Verify event signature is valid
-    event.verify().map_err(|e| format!("Invalid signature: {}", e))?;
+    event
+        .verify()
+        .map_err(|e| format!("Invalid signature: {}", e))?;
 
     // 2. Verify event kind
     if event.kind.as_u16() != AUTH_EVENT_KIND {
@@ -105,12 +108,14 @@ pub fn verify_signed_event(
 }
 
 /// Parse an npub to hex public key.
+#[allow(dead_code)]
 pub fn npub_to_hex(npub: &str) -> Result<String, String> {
     let pubkey = PublicKey::parse(npub).map_err(|e| format!("Invalid npub: {}", e))?;
     Ok(pubkey.to_hex())
 }
 
 /// Parse a hex public key to npub.
+#[allow(dead_code)]
 pub fn hex_to_npub(hex: &str) -> Result<String, String> {
     let pubkey = PublicKey::parse(hex).map_err(|e| format!("Invalid hex pubkey: {}", e))?;
     pubkey
@@ -148,4 +153,3 @@ mod tests {
         assert!(result.unwrap().starts_with("npub1"));
     }
 }
-

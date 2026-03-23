@@ -122,6 +122,4 @@ impl Scheduler {
         info!("Scheduler stopped");
         Ok(())
     }
-
 }
-

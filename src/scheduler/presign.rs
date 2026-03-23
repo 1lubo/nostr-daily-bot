@@ -74,7 +74,8 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) ->
                 error = %e,
                 "Failed to parse stored event JSON"
             );
-            let _ = signed_events::mark_failed(db, event_id, &format!("Invalid event JSON: {}", e)).await;
+            let _ = signed_events::mark_failed(db, event_id, &format!("Invalid event JSON: {}", e))
+                .await;
             return false;
         }
     };
@@ -127,7 +128,9 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) ->
                 Some(&nostr_event_id),
                 output.success.len() as i32,
                 true, // is_scheduled
-            ).await {
+            )
+            .await
+            {
                 warn!(error = %e, "Failed to record post in history");
             }
             true
@@ -148,4 +151,3 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) ->
     client.disconnect().await;
     success
 }
-

@@ -20,4 +20,3 @@ pub enum NostrError {
 
 /// Result type for Nostr operations.
 pub type Result<T> = std::result::Result<T, NostrError>;
-

@@ -15,7 +15,7 @@ pub fn database_url() -> Result<String> {
     env::var("DATABASE_URL").context(
         "DATABASE_URL environment variable not set. \
          Set it to a PostgreSQL connection string like: \
-         postgres://user:password@host/database"
+         postgres://user:password@host/database",
     )
 }
 
@@ -92,4 +92,3 @@ mod tests {
         assert_eq!(masked, "postgres://localhost/db");
     }
 }
-

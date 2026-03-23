@@ -121,7 +121,7 @@ impl NostrClient {
             .await
             .map_err(NostrError::Sdk)?;
 
-        let event_id = output.id().clone();
+        let event_id = *output.id();
 
         info!(
             event_id = %event_id.to_bech32().unwrap_or_else(|_| event_id.to_hex()),
@@ -139,4 +139,3 @@ impl NostrClient {
         Ok(event_id)
     }
 }
-

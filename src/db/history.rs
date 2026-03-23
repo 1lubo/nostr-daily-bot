@@ -42,11 +42,7 @@ pub async fn record_post(
 }
 
 /// Get recent post history for a user.
-pub async fn get_history(
-    pool: &PgPool,
-    user_npub: &str,
-    limit: i32,
-) -> Result<Vec<PostHistory>> {
+pub async fn get_history(pool: &PgPool, user_npub: &str, limit: i32) -> Result<Vec<PostHistory>> {
     let rows: Vec<PostHistoryRow> = sqlx::query_as(
         "SELECT id, user_npub, content, event_id, relay_count, is_scheduled, posted_at FROM post_history WHERE user_npub = $1 ORDER BY posted_at DESC LIMIT $2"
     )
@@ -56,15 +52,18 @@ pub async fn get_history(
     .await
     .context("Failed to fetch post history")?;
 
-    Ok(rows.into_iter().map(|r| PostHistory {
-        id: r.id,
-        user_npub: r.user_npub,
-        content: r.content,
-        event_id: r.event_id,
-        relay_count: r.relay_count,
-        is_scheduled: r.is_scheduled,
-        posted_at: r.posted_at.to_rfc3339(),
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| PostHistory {
+            id: r.id,
+            user_npub: r.user_npub,
+            content: r.content,
+            event_id: r.event_id,
+            relay_count: r.relay_count,
+            is_scheduled: r.is_scheduled,
+            posted_at: r.posted_at.to_rfc3339(),
+        })
+        .collect())
 }
 
 /// Get total post count for a user.
@@ -79,6 +78,7 @@ pub async fn get_post_count(pool: &PgPool, user_npub: &str) -> Result<i32> {
 }
 
 /// Delete old history entries (keep last N).
+#[allow(dead_code)]
 pub async fn cleanup_history(pool: &PgPool, user_npub: &str, keep_count: i32) -> Result<i32> {
     let keep_count_i64 = keep_count as i64;
     let result = sqlx::query(
@@ -92,4 +92,3 @@ pub async fn cleanup_history(pool: &PgPool, user_npub: &str, keep_count: i32) ->
 
     Ok(result.rows_affected() as i32)
 }
-

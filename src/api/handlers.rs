@@ -36,6 +36,7 @@ pub struct SessionResponse {
     pub message: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct AuthenticatedRequest<T> {
     pub token: String,
@@ -216,8 +217,16 @@ pub struct CronPostResponse {
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<MessageResponse>)>;
 
-fn api_error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json<MessageResponse>) {
-    (status, Json(MessageResponse { message: message.into() }))
+fn api_error(
+    status: StatusCode,
+    message: impl Into<String>,
+) -> (StatusCode, Json<MessageResponse>) {
+    (
+        status,
+        Json(MessageResponse {
+            message: message.into(),
+        }),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -243,19 +252,29 @@ pub async fn start_session(
     // Create or get user in database
     let user = users::upsert_user(&state.db, &auth.npub, &UserInput::default())
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     // Create Nostr client
-    let nostr_client = NostrClient::with_keys(auth.keys)
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create client: {}", e)))?;
+    let nostr_client = NostrClient::with_keys(auth.keys).await.map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create client: {}", e),
+        )
+    })?;
     let nostr_client = Arc::new(nostr_client);
 
     // Connect to relays
-    nostr_client
-        .connect()
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to connect: {}", e)))?;
+    nostr_client.connect().await.map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to connect: {}", e),
+        )
+    })?;
 
     // Generate session token
     let token = generate_session_token();
@@ -269,13 +288,27 @@ pub async fn start_session(
     };
 
     // Start scheduler for this user
-    let scheduler = start_scheduler_for_user(&state, &auth.npub, Arc::clone(&nostr_client), &user.cron)
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to start scheduler: {}", e)))?;
+    let scheduler =
+        start_scheduler_for_user(&state, &auth.npub, Arc::clone(&nostr_client), &user.cron)
+            .await
+            .map_err(|e| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to start scheduler: {}", e),
+                )
+            })?;
 
     // Store session and scheduler
-    state.sessions.write().await.insert(auth.npub.clone(), session);
-    state.schedulers.write().await.insert(auth.npub.clone(), scheduler);
+    state
+        .sessions
+        .write()
+        .await
+        .insert(auth.npub.clone(), session);
+    state
+        .schedulers
+        .write()
+        .await
+        .insert(auth.npub.clone(), scheduler);
 
     info!(npub = %auth.npub, "Session started");
     Ok(Json(SessionResponse {
@@ -338,7 +371,12 @@ pub async fn auth_challenge(
     // Create challenge in database
     let challenge = challenges::create_challenge(&state.db, &npub)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create challenge: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create challenge: {}", e),
+            )
+        })?;
 
     info!(npub = %npub, challenge_id = %challenge.id, "Auth challenge created");
 
@@ -355,30 +393,61 @@ pub async fn auth_verify(
     Json(req): Json<VerifyRequest>,
 ) -> ApiResult<VerifyResponse> {
     // Get and verify the challenge
-    let challenge = challenges::verify_challenge(&state.db, &req.challenge_id, &req.signed_event.pubkey.to_bech32().unwrap_or_default())
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
-        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Invalid, expired, or already used challenge"))?;
+    let challenge = challenges::verify_challenge(
+        &state.db,
+        &req.challenge_id,
+        &req.signed_event.pubkey.to_bech32().unwrap_or_default(),
+    )
+    .await
+    .map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+    })?
+    .ok_or_else(|| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid, expired, or already used challenge",
+        )
+    })?;
 
     // Verify the signed event
     let verify_result = verify_signed_event(&req.signed_event, &challenge.challenge, &challenge.id)
-        .map_err(|e| api_error(StatusCode::BAD_REQUEST, format!("Signature verification failed: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                format!("Signature verification failed: {}", e),
+            )
+        })?;
 
     // Mark challenge as used
     challenges::mark_challenge_used(&state.db, &challenge.id)
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to mark challenge as used");
-            api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to complete authentication")
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to complete authentication",
+            )
         })?;
 
     // For presign sessions, we allow replacing existing sessions
     // (unlike nsec sessions which hold server-side keys)
     // Remove any existing presign session for this user
-    state.presign_sessions.write().await.remove(&verify_result.npub);
+    state
+        .presign_sessions
+        .write()
+        .await
+        .remove(&verify_result.npub);
 
     // But block if there's an active nsec session (which has server-side state)
-    if state.sessions.read().await.contains_key(&verify_result.npub) {
+    if state
+        .sessions
+        .read()
+        .await
+        .contains_key(&verify_result.npub)
+    {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             "An nsec session is already active for this user. Stop it first.",
@@ -389,12 +458,22 @@ pub async fn auth_verify(
     let user_input = UserInput::default();
     users::upsert_user(&state.db, &verify_result.npub, &user_input)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     // Update auth_mode to presign
     users::update_auth_mode(&state.db, &verify_result.npub, "presign")
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     // Generate session token
     let token = generate_session_token();
@@ -407,7 +486,11 @@ pub async fn auth_verify(
     };
 
     // Store presign session
-    state.presign_sessions.write().await.insert(verify_result.npub.clone(), session);
+    state
+        .presign_sessions
+        .write()
+        .await
+        .insert(verify_result.npub.clone(), session);
 
     info!(npub = %verify_result.npub, "NIP-07 session started");
 
@@ -432,25 +515,44 @@ pub async fn get_pending_events(
     let npub = state
         .get_presign_session_by_token(&req.token)
         .await
-        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token or not a presign session"))?;
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::UNAUTHORIZED,
+                "Invalid session token or not a presign session",
+            )
+        })?;
 
     // Get user to check auth mode and get schedule
     let user = users::get_user(&state.db, &npub)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "User not found"))?;
 
     if user.auth_mode != "presign" {
-        return Err(api_error(StatusCode::BAD_REQUEST, "User is not in presign mode"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "User is not in presign mode",
+        ));
     }
 
     // Get user's quotes
-    let user_quotes = quotes::get_quotes(&state.db, &npub)
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+    let user_quotes = quotes::get_quotes(&state.db, &npub).await.map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+    })?;
 
     if user_quotes.is_empty() {
-        return Err(api_error(StatusCode::BAD_REQUEST, "No quotes configured. Add quotes first."));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "No quotes configured. Add quotes first.",
+        ));
     }
 
     // Parse cron schedule
@@ -459,7 +561,7 @@ pub async fn get_pending_events(
 
     // Calculate posting times for the next N days
     let now = Utc::now();
-    let days_ahead = req.days_ahead.min(30).max(1); // Limit to 1-30 days
+    let days_ahead = req.days_ahead.clamp(1, 30); // Limit to 1-30 days
     let end_date = now + chrono::Duration::days(days_ahead as i64);
 
     let posting_times: Vec<DateTime<Utc>> = schedule
@@ -470,15 +572,24 @@ pub async fn get_pending_events(
     // Get already-signed event times
     let existing_times = signed_events::get_scheduled_times(&state.db, &npub)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     // Get post count for quote tracking (to know which quotes have been used)
     let post_count = history::get_post_count(&state.db, &npub).await.unwrap_or(0) as usize;
     let existing_count = existing_times.len();
 
     // Convert hex pubkey
-    let pubkey = PublicKey::parse(&npub)
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Invalid npub: {}", e)))?;
+    let pubkey = PublicKey::parse(&npub).map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Invalid npub: {}", e),
+        )
+    })?;
     let pubkey_hex = pubkey.to_hex();
 
     // Calculate how many quotes have already been used (posted + signed)
@@ -543,25 +654,44 @@ pub async fn store_signed_events(
     let npub = state
         .get_presign_session_by_token(&req.token)
         .await
-        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token or not a presign session"))?;
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::UNAUTHORIZED,
+                "Invalid session token or not a presign session",
+            )
+        })?;
 
     if req.signed_events.is_empty() {
-        return Err(api_error(StatusCode::BAD_REQUEST, "No signed events provided"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "No signed events provided",
+        ));
     }
 
     // Validate and prepare events for storage
     let mut events_to_store = Vec::new();
     for signed_input in &req.signed_events {
         // Verify the event signature
-        signed_input.event.verify()
-            .map_err(|e| api_error(StatusCode::BAD_REQUEST, format!("Invalid event signature: {}", e)))?;
+        signed_input.event.verify().map_err(|e| {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                format!("Invalid event signature: {}", e),
+            )
+        })?;
 
         // Verify the event is from the correct user
-        let event_npub = signed_input.event.pubkey.to_bech32()
-            .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to encode pubkey: {}", e)))?;
+        let event_npub = signed_input.event.pubkey.to_bech32().map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to encode pubkey: {}", e),
+            )
+        })?;
 
         if event_npub != npub {
-            return Err(api_error(StatusCode::BAD_REQUEST, "Event pubkey does not match session"));
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "Event pubkey does not match session",
+            ));
         }
 
         // Extract content preview (first 100 chars)
@@ -572,8 +702,12 @@ pub async fn store_signed_events(
         };
 
         events_to_store.push((
-            serde_json::to_string(&signed_input.event)
-                .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize event: {}", e)))?,
+            serde_json::to_string(&signed_input.event).map_err(|e| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to serialize event: {}", e),
+                )
+            })?,
             signed_input.event.id.to_hex(),
             content_preview,
             signed_input.scheduled_for.clone(),
@@ -583,7 +717,12 @@ pub async fn store_signed_events(
     // Store events in database
     let stored = signed_events::store_signed_events(&state.db, &npub, events_to_store)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     info!(npub = %npub, stored = stored, "Stored signed events");
 
@@ -602,17 +741,32 @@ pub async fn get_event_status(
     let npub = state
         .get_presign_session_by_token(&req.token)
         .await
-        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token or not a presign session"))?;
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::UNAUTHORIZED,
+                "Invalid session token or not a presign session",
+            )
+        })?;
 
     // Get event counts
     let counts = signed_events::get_event_counts(&state.db, &npub)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     // Get next pending event
     let pending_events = signed_events::get_pending_events(&state.db, &npub, 1)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     let next_post = pending_events.first().map(|e| e.scheduled_for.clone());
 
@@ -634,9 +788,12 @@ pub async fn get_status(
     Path(npub): Path<String>,
 ) -> ApiResult<StatusResponse> {
     // Get user from database
-    let user = users::get_user(&state.db, &npub)
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+    let user = users::get_user(&state.db, &npub).await.map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+    })?;
 
     let user = match user {
         Some(u) => u,
@@ -691,12 +848,17 @@ pub async fn get_quotes(
     State(state): State<SharedState>,
     Path(npub): Path<String>,
 ) -> ApiResult<QuotesResponse> {
-    let db_quotes = quotes::get_quotes(&state.db, &npub)
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+    let db_quotes = quotes::get_quotes(&state.db, &npub).await.map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+    })?;
 
     let quote_strings: Vec<String> = db_quotes.into_iter().map(|q| q.content).collect();
-    Ok(Json(QuotesResponse { quotes: quote_strings }))
+    Ok(Json(QuotesResponse {
+        quotes: quote_strings,
+    }))
 }
 
 pub async fn upload_quotes(
@@ -710,13 +872,21 @@ pub async fn upload_quotes(
         .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token"))?;
 
     if req.quotes.is_empty() {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Quotes list cannot be empty"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Quotes list cannot be empty",
+        ));
     }
 
     // Save to database
     quotes::replace_quotes(&state.db, &npub, &req.quotes)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     info!(npub = %npub, count = req.quotes.len(), "Quotes updated");
     Ok(Json(MessageResponse {
@@ -734,7 +904,12 @@ pub async fn get_schedule(
 ) -> ApiResult<ScheduleResponse> {
     let user = users::get_user(&state.db, &npub)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "User not found"))?;
 
     Ok(Json(ScheduleResponse { cron: user.cron }))
@@ -757,7 +932,12 @@ pub async fn update_schedule(
     // Update in database
     users::update_schedule(&state.db, &npub, &req.cron)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     // Restart scheduler if session is active
     if state.has_session(&npub).await {
@@ -768,8 +948,13 @@ pub async fn update_schedule(
 
         // Start new scheduler with new cron
         if let Some(client) = state.get_session(&npub).await {
-            if let Ok(scheduler) = start_scheduler_for_user(&state, &npub, client, &req.cron).await {
-                state.schedulers.write().await.insert(npub.clone(), scheduler);
+            if let Ok(scheduler) = start_scheduler_for_user(&state, &npub, client, &req.cron).await
+            {
+                state
+                    .schedulers
+                    .write()
+                    .await
+                    .insert(npub.clone(), scheduler);
             }
         }
     }
@@ -790,7 +975,10 @@ pub async fn post_now(
 ) -> ApiResult<PostResponse> {
     let message = req.message.trim();
     if message.is_empty() {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Message cannot be empty"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Message cannot be empty",
+        ));
     }
 
     // Validate token and get npub
@@ -806,10 +994,12 @@ pub async fn post_now(
         .ok_or_else(|| api_error(StatusCode::INTERNAL_SERVER_ERROR, "Session not found"))?;
 
     // Publish the note
-    let event_id = nostr_client
-        .publish_text_note(message)
-        .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to post: {}", e)))?;
+    let event_id = nostr_client.publish_text_note(message).await.map_err(|e| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to post: {}", e),
+        )
+    })?;
 
     let event_id_str = event_id.to_bech32().unwrap_or_else(|_| event_id.to_hex());
 
@@ -833,7 +1023,12 @@ pub async fn get_history(
 ) -> ApiResult<HistoryResponse> {
     let posts = history::get_history(&state.db, &npub, 50)
         .await
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?;
 
     let items: Vec<HistoryItem> = posts
         .into_iter()
@@ -899,7 +1094,9 @@ async fn start_scheduler_for_user(
                     Ok(id) => {
                         let event_id_str = id.to_bech32().unwrap_or_else(|_| id.to_hex());
                         info!(npub = %npub, event_id = %event_id_str, "Scheduled post successful");
-                        let _ = history::record_post(&db, &npub, message, Some(&event_id_str), 1, true).await;
+                        let _ =
+                            history::record_post(&db, &npub, message, Some(&event_id_str), 1, true)
+                                .await;
                     }
                     Err(e) => {
                         error!(npub = %npub, error = %e, "Scheduled post failed");
@@ -928,9 +1125,7 @@ use crate::scheduler::presign::post_due_events;
 /// - EasyCron
 /// - GitHub Actions
 /// - UptimeRobot (free, can ping URLs)
-pub async fn cron_post_due(
-    State(state): State<SharedState>,
-) -> ApiResult<CronPostResponse> {
+pub async fn cron_post_due(State(state): State<SharedState>) -> ApiResult<CronPostResponse> {
     info!("Cron webhook triggered - checking for due events");
 
     let result = post_due_events(&state.db).await;
@@ -939,7 +1134,11 @@ pub async fn cron_post_due(
         Ok((posted, failed)) => {
             let processed = posted + failed;
             if processed > 0 {
-                info!(posted = posted, failed = failed, "Cron: processed due events");
+                info!(
+                    posted = posted,
+                    failed = failed,
+                    "Cron: processed due events"
+                );
             }
             Ok(Json(CronPostResponse {
                 processed,

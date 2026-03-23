@@ -72,7 +72,11 @@ pub async fn get_challenge(pool: &PgPool, id: &str) -> Result<Option<AuthChallen
 }
 
 /// Verify a challenge is valid (exists, not expired, not used, matches npub).
-pub async fn verify_challenge(pool: &PgPool, id: &str, npub: &str) -> Result<Option<AuthChallenge>> {
+pub async fn verify_challenge(
+    pool: &PgPool,
+    id: &str,
+    npub: &str,
+) -> Result<Option<AuthChallenge>> {
     let challenge = match get_challenge(pool, id).await? {
         Some(c) => c,
         None => return Ok(None),
@@ -110,6 +114,7 @@ pub async fn mark_challenge_used(pool: &PgPool, id: &str) -> Result<()> {
 }
 
 /// Clean up expired challenges.
+#[allow(dead_code)]
 pub async fn cleanup_expired_challenges(pool: &PgPool) -> Result<i32> {
     let now = Utc::now();
 
@@ -124,4 +129,3 @@ pub async fn cleanup_expired_challenges(pool: &PgPool) -> Result<i32> {
 
 // Tests removed - PostgreSQL tests require a running database
 // Consider adding integration tests with testcontainers
-

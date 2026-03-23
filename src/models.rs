@@ -82,6 +82,7 @@ pub struct SignedEvent {
 
 /// Status of a signed event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SignedEventStatus {
     Pending,
     Posted,
@@ -101,6 +102,7 @@ impl SignedEventStatus {
 }
 
 /// Unsigned event to be signed by the client.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnsignedEvent {
     pub kind: i32,

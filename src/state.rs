@@ -30,6 +30,7 @@ pub struct AppState {
 /// Active session state (when user has entered nsec).
 pub struct ActiveSession {
     /// User's npub (public key).
+    #[allow(dead_code)]
     pub npub: String,
     /// Session token for authentication.
     pub token: String,
@@ -42,10 +43,12 @@ pub struct ActiveSession {
 /// Pre-sign session state (NIP-07 authenticated, no server-side key).
 pub struct PresignSession {
     /// User's npub (public key).
+    #[allow(dead_code)]
     pub npub: String,
     /// Session token for authentication.
     pub token: String,
     /// When the session started.
+    #[allow(dead_code)]
     pub started_at: DateTime<Utc>,
 }
 
@@ -68,6 +71,7 @@ impl AppState {
     }
 
     /// Check if a presign session exists for the given npub.
+    #[allow(dead_code)]
     pub async fn has_presign_session(&self, npub: &str) -> bool {
         self.presign_sessions.read().await.contains_key(npub)
     }
@@ -114,8 +118,8 @@ impl AppState {
     }
 
     /// Get the number of active sessions (both types).
+    #[allow(dead_code)]
     pub async fn active_session_count(&self) -> usize {
         self.sessions.read().await.len() + self.presign_sessions.read().await.len()
     }
 }
-

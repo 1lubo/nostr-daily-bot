@@ -35,4 +35,3 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/cron/post", get(handlers::cron_post_due))
         .with_state(state)
 }
-

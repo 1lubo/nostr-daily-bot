@@ -46,13 +46,12 @@ pub async fn store_signed_events(
 
     for (event_json, event_id, content_preview, scheduled_for) in events {
         // Skip if event_id already exists
-        let exists: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM signed_events WHERE event_id = $1"
-        )
-        .bind(&event_id)
-        .fetch_one(&mut *tx)
-        .await
-        .context("Failed to check event existence")?;
+        let exists: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM signed_events WHERE event_id = $1")
+                .bind(&event_id)
+                .fetch_one(&mut *tx)
+                .await
+                .context("Failed to check event existence")?;
 
         if exists > 0 {
             continue;
@@ -84,7 +83,11 @@ pub async fn store_signed_events(
 }
 
 /// Get pending signed events for a user.
-pub async fn get_pending_events(pool: &PgPool, user_npub: &str, limit: i32) -> Result<Vec<SignedEvent>> {
+pub async fn get_pending_events(
+    pool: &PgPool,
+    user_npub: &str,
+    limit: i32,
+) -> Result<Vec<SignedEvent>> {
     let rows: Vec<SignedEventRow> = sqlx::query_as(
         "SELECT id, user_npub, event_json, event_id, content_preview, scheduled_for, status, posted_at, error_message, created_at
          FROM signed_events
@@ -102,6 +105,7 @@ pub async fn get_pending_events(pool: &PgPool, user_npub: &str, limit: i32) -> R
 }
 
 /// Get the next due signed event (scheduled_for <= now and status = pending).
+#[allow(dead_code)]
 pub async fn get_next_due(pool: &PgPool, user_npub: &str) -> Result<Option<SignedEvent>> {
     let now = Utc::now();
 
@@ -168,21 +172,21 @@ pub async fn mark_failed(pool: &PgPool, id: i64, error: &str) -> Result<()> {
 /// Get event counts for a user.
 pub async fn get_event_counts(pool: &PgPool, user_npub: &str) -> Result<EventCounts> {
     let pending: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM signed_events WHERE user_npub = $1 AND status = 'pending'"
+        "SELECT COUNT(*) FROM signed_events WHERE user_npub = $1 AND status = 'pending'",
     )
     .bind(user_npub)
     .fetch_one(pool)
     .await?;
 
     let posted: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM signed_events WHERE user_npub = $1 AND status = 'posted'"
+        "SELECT COUNT(*) FROM signed_events WHERE user_npub = $1 AND status = 'posted'",
     )
     .bind(user_npub)
     .fetch_one(pool)
     .await?;
 
     let failed: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM signed_events WHERE user_npub = $1 AND status = 'failed'"
+        "SELECT COUNT(*) FROM signed_events WHERE user_npub = $1 AND status = 'failed'",
     )
     .bind(user_npub)
     .fetch_one(pool)
@@ -210,9 +214,10 @@ pub async fn get_scheduled_times(pool: &PgPool, user_npub: &str) -> Result<Vec<S
 }
 
 /// Cancel all pending signed events for a user.
+#[allow(dead_code)]
 pub async fn cancel_pending_events(pool: &PgPool, user_npub: &str) -> Result<i32> {
     let result = sqlx::query(
-        "UPDATE signed_events SET status = 'cancelled' WHERE user_npub = $1 AND status = 'pending'"
+        "UPDATE signed_events SET status = 'cancelled' WHERE user_npub = $1 AND status = 'pending'",
     )
     .bind(user_npub)
     .execute(pool)
@@ -221,4 +226,3 @@ pub async fn cancel_pending_events(pool: &PgPool, user_npub: &str) -> Result<i32
 
     Ok(result.rows_affected() as i32)
 }
-

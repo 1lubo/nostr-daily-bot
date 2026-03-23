@@ -25,13 +25,16 @@ pub async fn get_quotes(pool: &PgPool, user_npub: &str) -> Result<Vec<Quote>> {
     .await
     .context("Failed to fetch quotes")?;
 
-    Ok(rows.into_iter().map(|r| Quote {
-        id: r.id,
-        user_npub: r.user_npub,
-        content: r.content,
-        sort_order: r.sort_order,
-        created_at: r.created_at.to_rfc3339(),
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| Quote {
+            id: r.id,
+            user_npub: r.user_npub,
+            content: r.content,
+            sort_order: r.sort_order,
+            created_at: r.created_at.to_rfc3339(),
+        })
+        .collect())
 }
 
 /// Get quote count for a user.
@@ -73,18 +76,20 @@ pub async fn replace_quotes(pool: &PgPool, user_npub: &str, quotes: &[String]) -
 }
 
 /// Add a single quote for a user.
+#[allow(dead_code)]
 pub async fn add_quote(pool: &PgPool, user_npub: &str, content: &str) -> Result<Quote> {
     // Get the next sort order
-    let max_order: Option<i32> = sqlx::query_scalar("SELECT MAX(sort_order) FROM quotes WHERE user_npub = $1")
-        .bind(user_npub)
-        .fetch_one(pool)
-        .await
-        .context("Failed to get max sort order")?;
+    let max_order: Option<i32> =
+        sqlx::query_scalar("SELECT MAX(sort_order) FROM quotes WHERE user_npub = $1")
+            .bind(user_npub)
+            .fetch_one(pool)
+            .await
+            .context("Failed to get max sort order")?;
 
     let sort_order = max_order.unwrap_or(-1) + 1;
 
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO quotes (user_npub, content, sort_order) VALUES ($1, $2, $3) RETURNING id"
+        "INSERT INTO quotes (user_npub, content, sort_order) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(user_npub)
     .bind(content)
@@ -103,6 +108,7 @@ pub async fn add_quote(pool: &PgPool, user_npub: &str, content: &str) -> Result<
 }
 
 /// Delete a quote by ID (must belong to user).
+#[allow(dead_code)]
 pub async fn delete_quote(pool: &PgPool, user_npub: &str, quote_id: i64) -> Result<bool> {
     let result = sqlx::query("DELETE FROM quotes WHERE id = $1 AND user_npub = $2")
         .bind(quote_id)
@@ -113,4 +119,3 @@ pub async fn delete_quote(pool: &PgPool, user_npub: &str, quote_id: i64) -> Resu
 
     Ok(result.rows_affected() > 0)
 }
-

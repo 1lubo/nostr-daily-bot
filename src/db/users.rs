@@ -52,7 +52,7 @@ pub async fn upsert_user(pool: &PgPool, npub: &str, input: &UserInput) -> Result
             cron = EXCLUDED.cron,
             timezone = EXCLUDED.timezone,
             updated_at = NOW()
-        "#
+        "#,
     )
     .bind(npub)
     .bind(&input.display_name)
@@ -80,6 +80,7 @@ pub async fn update_schedule(pool: &PgPool, npub: &str, cron: &str) -> Result<()
 }
 
 /// Delete a user and all their data.
+#[allow(dead_code)]
 pub async fn delete_user(pool: &PgPool, npub: &str) -> Result<()> {
     sqlx::query("DELETE FROM users WHERE npub = $1")
         .bind(npub)
@@ -91,6 +92,7 @@ pub async fn delete_user(pool: &PgPool, npub: &str) -> Result<()> {
 }
 
 /// Check if a user exists.
+#[allow(dead_code)]
 pub async fn user_exists(pool: &PgPool, npub: &str) -> Result<bool> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE npub = $1")
         .bind(npub)

@@ -27,4 +27,3 @@ pub enum SchedulerError {
 
 /// Result type for scheduler operations.
 pub type Result<T> = std::result::Result<T, SchedulerError>;
-

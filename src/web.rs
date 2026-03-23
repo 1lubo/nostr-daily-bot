@@ -14,16 +14,16 @@ struct Assets;
 /// Handler for serving embedded static files.
 pub async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
-    
+
     // Default to index.html for root path
     let path = if path.is_empty() { "index.html" } else { path };
-    
+
     match Assets::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path)
                 .first_or_octet_stream()
                 .to_string();
-            
+
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
@@ -47,4 +47,3 @@ pub async fn static_handler(uri: Uri) -> impl IntoResponse {
         }
     }
 }
-
