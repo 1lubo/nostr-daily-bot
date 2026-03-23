@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use anyhow::Result;
 use nostr_sdk::prelude::*;
 use sqlx::PgPool;
 use tracing::{error, info, warn};
@@ -29,27 +30,37 @@ pub async fn run_presign_scheduler(db: PgPool) {
 
     loop {
         interval.tick().await;
-
-        // Find all due signed events
-        match signed_events::get_all_due(&db).await {
-            Ok(due_events) => {
-                if !due_events.is_empty() {
-                    info!(count = due_events.len(), "Found due pre-signed events");
-                }
-
-                for event in due_events {
-                    post_presigned_event(&db, event).await;
-                }
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to fetch due events");
-            }
-        }
+        let _ = post_due_events(&db).await;
     }
 }
 
-/// Post a single pre-signed event to relays.
-async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) {
+/// Post all due pre-signed events. Returns (posted_count, failed_count).
+/// This can be called from the background scheduler or from an external cron webhook.
+pub async fn post_due_events(db: &PgPool) -> Result<(i32, i32)> {
+    let due_events = signed_events::get_all_due(db).await?;
+
+    if due_events.is_empty() {
+        return Ok((0, 0));
+    }
+
+    info!(count = due_events.len(), "Found due pre-signed events");
+
+    let mut posted = 0;
+    let mut failed = 0;
+
+    for event in due_events {
+        if post_presigned_event(db, event).await {
+            posted += 1;
+        } else {
+            failed += 1;
+        }
+    }
+
+    Ok((posted, failed))
+}
+
+/// Post a single pre-signed event to relays. Returns true if successful.
+async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) -> bool {
     let event_id = event.id;
     let user_npub = event.user_npub.clone();
 
@@ -64,7 +75,7 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) {
                 "Failed to parse stored event JSON"
             );
             let _ = signed_events::mark_failed(db, event_id, &format!("Invalid event JSON: {}", e)).await;
-            return;
+            return false;
         }
     };
 
@@ -85,7 +96,7 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Send the pre-signed event
-    match client.send_event(nostr_event.clone()).await {
+    let success = match client.send_event(nostr_event.clone()).await {
         Ok(output) => {
             let nostr_event_id = output.id().to_hex();
             info!(
@@ -119,6 +130,7 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) {
             ).await {
                 warn!(error = %e, "Failed to record post in history");
             }
+            true
         }
         Err(e) => {
             error!(
@@ -128,10 +140,12 @@ async fn post_presigned_event(db: &PgPool, event: crate::models::SignedEvent) {
                 "Failed to post pre-signed event"
             );
             let _ = signed_events::mark_failed(db, event_id, &e.to_string()).await;
+            false
         }
-    }
+    };
 
     // Disconnect
     client.disconnect().await;
+    success
 }
 

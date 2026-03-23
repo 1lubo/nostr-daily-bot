@@ -207,6 +207,13 @@ pub struct EventStatusResponse {
     pub next_post: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct CronPostResponse {
+    pub processed: i32,
+    pub posted: i32,
+    pub failed: i32,
+}
+
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<MessageResponse>)>;
 
 fn api_error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json<MessageResponse>) {
@@ -904,4 +911,48 @@ async fn start_scheduler_for_user(
 
     scheduler.start().await?;
     Ok(scheduler)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cron webhook handler (for external cron services)
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::scheduler::presign::post_due_events;
+
+/// Webhook endpoint for external cron services to trigger posting of due events.
+/// This allows the app to work on shared/serverless infrastructure where the
+/// background scheduler may not be running continuously.
+///
+/// Call this endpoint every 1-5 minutes from an external cron service like:
+/// - cron-job.org (free)
+/// - EasyCron
+/// - GitHub Actions
+/// - UptimeRobot (free, can ping URLs)
+pub async fn cron_post_due(
+    State(state): State<SharedState>,
+) -> ApiResult<CronPostResponse> {
+    info!("Cron webhook triggered - checking for due events");
+
+    let result = post_due_events(&state.db).await;
+
+    match result {
+        Ok((posted, failed)) => {
+            let processed = posted + failed;
+            if processed > 0 {
+                info!(posted = posted, failed = failed, "Cron: processed due events");
+            }
+            Ok(Json(CronPostResponse {
+                processed,
+                posted,
+                failed,
+            }))
+        }
+        Err(e) => {
+            error!(error = %e, "Cron: failed to process due events");
+            Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to process events: {}", e),
+            ))
+        }
+    }
 }

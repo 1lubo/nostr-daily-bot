@@ -31,6 +31,8 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/quotes", post(handlers::upload_quotes))
         .route("/api/schedule", put(handlers::update_schedule))
         .route("/api/post", post(handlers::post_now))
+        // Cron webhook for external schedulers (serverless-friendly)
+        .route("/api/cron/post", get(handlers::cron_post_due))
         .with_state(state)
 }
 
