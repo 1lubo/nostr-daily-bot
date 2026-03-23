@@ -13,17 +13,12 @@ jobs:
     steps:
       - name: Trigger post of due events
         run: |
-          response=$(curl -s -w "\n%{http_code}" https://nostrdailybot.fly.dev/api/cron/post)
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | head -n -1)
-          
-          echo "Response: $body"
-          echo "HTTP Status: $http_code"
-          
+          http_code=$(curl -s -o /dev/null -w "%{http_code}" https://nostrdailybot.fly.dev/api/cron/post)
+
           if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
             echo "✅ Success"
           else
-            echo "❌ Failed"
+            echo "❌ Failed (HTTP $http_code)"
             exit 1
           fi
 
