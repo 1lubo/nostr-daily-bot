@@ -50,7 +50,14 @@ async fn run_server(port: u16) -> Result<()> {
     info!("Database initialized");
 
     // Create app state
-    let state: SharedState = Arc::new(AppState::new(db, port));
+    let state: SharedState = Arc::new(AppState::new(db.clone(), port));
+
+    // Start background scheduler for pre-signed events
+    let db_for_scheduler = db.clone();
+    tokio::spawn(async move {
+        scheduler::presign::run_presign_scheduler(db_for_scheduler).await;
+    });
+    info!("Pre-signed events background scheduler started");
 
     // Build router
     let app = Router::new()

@@ -4,21 +4,21 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
-use chrono::Utc;
-use nostr_sdk::ToBech32;
+use chrono::{DateTime, Utc};
+use nostr_sdk::{Event, PublicKey, ToBech32};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::auth::{generate_session_token, parse_nsec};
-use crate::db::{history, quotes, users};
+use crate::auth::{generate_session_token, parse_nsec, verify_signed_event};
+use crate::db::{challenges, history, quotes, signed_events, users};
 use crate::models::UserInput;
 use crate::nostr::NostrClient;
 use crate::scheduler::{Scheduler, SchedulerConfig};
-use crate::state::{ActiveSession, SharedState};
+use crate::state::{ActiveSession, PresignSession, SharedState};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Request/Response types
@@ -110,6 +110,101 @@ pub struct HistoryItem {
     pub event_id: Option<String>,
     pub posted_at: String,
     pub is_scheduled: bool,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NIP-07 Auth types
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ChallengeRequest {
+    pub npub: String,
+}
+
+#[derive(Serialize)]
+pub struct ChallengeResponse {
+    pub challenge_id: String,
+    pub challenge: String,
+    pub expires_in: i64,
+}
+
+#[derive(Deserialize)]
+pub struct VerifyRequest {
+    pub challenge_id: String,
+    pub signed_event: Event,
+}
+
+#[derive(Serialize)]
+pub struct VerifyResponse {
+    pub npub: String,
+    pub token: String,
+    pub auth_mode: String,
+    pub message: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-signing types
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct PendingEventsRequest {
+    pub token: String,
+    #[serde(default = "default_days_ahead")]
+    pub days_ahead: i32,
+}
+
+fn default_days_ahead() -> i32 {
+    7
+}
+
+#[derive(Serialize)]
+pub struct PendingEventsResponse {
+    pub events_to_sign: Vec<EventToSign>,
+    pub total_pending: i32,
+    pub next_unsigned: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct EventToSign {
+    pub scheduled_for: String,
+    pub content: String,
+    pub unsigned_event: UnsignedEventJson,
+}
+
+#[derive(Serialize)]
+pub struct UnsignedEventJson {
+    pub kind: i32,
+    pub created_at: i64,
+    pub content: String,
+    pub tags: Vec<Vec<String>>,
+    pub pubkey: String,
+}
+
+#[derive(Deserialize)]
+pub struct SignedEventInput {
+    pub scheduled_for: String,
+    pub event: Event,
+}
+
+#[derive(Deserialize)]
+pub struct StoreSignedEventsRequest {
+    pub token: String,
+    pub signed_events: Vec<SignedEventInput>,
+}
+
+#[derive(Serialize)]
+pub struct StoreSignedEventsResponse {
+    pub stored: i32,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+pub struct EventStatusResponse {
+    pub pending: i32,
+    pub signed: i32,
+    pub posted: i32,
+    pub failed: i32,
+    pub next_post: Option<String>,
 }
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<MessageResponse>)>;
@@ -206,6 +301,286 @@ pub async fn stop_session(
     info!(npub = %npub, "Session stopped");
     Ok(Json(MessageResponse {
         message: "Session stopped".to_string(),
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NIP-07 Auth handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Request a challenge for NIP-07 authentication.
+pub async fn auth_challenge(
+    State(state): State<SharedState>,
+    Json(req): Json<ChallengeRequest>,
+) -> ApiResult<ChallengeResponse> {
+    // Validate npub format
+    if !req.npub.starts_with("npub1") {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Invalid npub format"));
+    }
+
+    // Create challenge in database
+    let challenge = challenges::create_challenge(&state.db, &req.npub)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create challenge: {}", e)))?;
+
+    info!(npub = %req.npub, challenge_id = %challenge.id, "Auth challenge created");
+
+    Ok(Json(ChallengeResponse {
+        challenge_id: challenge.id,
+        challenge: challenge.challenge,
+        expires_in: 300, // 5 minutes
+    }))
+}
+
+/// Verify a signed challenge and create a session.
+pub async fn auth_verify(
+    State(state): State<SharedState>,
+    Json(req): Json<VerifyRequest>,
+) -> ApiResult<VerifyResponse> {
+    // Get and verify the challenge
+    let challenge = challenges::verify_challenge(&state.db, &req.challenge_id, &req.signed_event.pubkey.to_bech32().unwrap_or_default())
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Invalid, expired, or already used challenge"))?;
+
+    // Verify the signed event
+    let verify_result = verify_signed_event(&req.signed_event, &challenge.challenge, &challenge.id)
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, format!("Signature verification failed: {}", e)))?;
+
+    // Mark challenge as used
+    challenges::mark_challenge_used(&state.db, &challenge.id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to mark challenge as used");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to complete authentication")
+        })?;
+
+    // Check if already has active session
+    if state.has_session(&verify_result.npub).await {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Session already active for this user",
+        ));
+    }
+
+    // Create or update user in database with presign auth mode
+    let user_input = UserInput::default();
+    users::upsert_user(&state.db, &verify_result.npub, &user_input)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    // Update auth_mode to presign
+    users::update_auth_mode(&state.db, &verify_result.npub, "presign")
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    // Generate session token
+    let token = generate_session_token();
+
+    // Create presign session (no NostrClient needed)
+    let session = PresignSession {
+        npub: verify_result.npub.clone(),
+        token: token.clone(),
+        started_at: Utc::now(),
+    };
+
+    // Store presign session
+    state.presign_sessions.write().await.insert(verify_result.npub.clone(), session);
+
+    info!(npub = %verify_result.npub, "NIP-07 session started");
+
+    Ok(Json(VerifyResponse {
+        npub: verify_result.npub,
+        token,
+        auth_mode: "presign".to_string(),
+        message: "Authenticated successfully".to_string(),
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-signing handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Get pending events that need to be signed.
+pub async fn get_pending_events(
+    State(state): State<SharedState>,
+    Query(req): Query<PendingEventsRequest>,
+) -> ApiResult<PendingEventsResponse> {
+    // Validate token and get npub (presign sessions only)
+    let npub = state
+        .get_presign_session_by_token(&req.token)
+        .await
+        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token or not a presign session"))?;
+
+    // Get user to check auth mode and get schedule
+    let user = users::get_user(&state.db, &npub)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "User not found"))?;
+
+    if user.auth_mode != "presign" {
+        return Err(api_error(StatusCode::BAD_REQUEST, "User is not in presign mode"));
+    }
+
+    // Get user's quotes
+    let user_quotes = quotes::get_quotes(&state.db, &npub)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    if user_quotes.is_empty() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "No quotes configured. Add quotes first."));
+    }
+
+    // Parse cron schedule
+    let schedule = cron::Schedule::from_str(&user.cron)
+        .map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid cron schedule"))?;
+
+    // Calculate posting times for the next N days
+    let now = Utc::now();
+    let days_ahead = req.days_ahead.min(30).max(1); // Limit to 1-30 days
+    let end_date = now + chrono::Duration::days(days_ahead as i64);
+
+    let posting_times: Vec<DateTime<Utc>> = schedule
+        .upcoming(Utc)
+        .take_while(|t| *t < end_date)
+        .collect();
+
+    // Get already-signed event times
+    let existing_times = signed_events::get_scheduled_times(&state.db, &npub)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    // Get post count for quote rotation
+    let post_count = history::get_post_count(&state.db, &npub).await.unwrap_or(0) as usize;
+    let existing_count = existing_times.len();
+
+    // Convert hex pubkey
+    let pubkey = PublicKey::parse(&npub)
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Invalid npub: {}", e)))?;
+    let pubkey_hex = pubkey.to_hex();
+
+    // Generate unsigned events for times that don't have signed events
+    let mut events_to_sign = Vec::new();
+    for (i, time) in posting_times.iter().enumerate() {
+        let time_str = time.to_rfc3339();
+        if !existing_times.contains(&time_str) {
+            let quote_idx = (post_count + existing_count + i) % user_quotes.len();
+            let content = user_quotes[quote_idx].content.clone();
+
+            events_to_sign.push(EventToSign {
+                scheduled_for: time_str,
+                content: content.clone(),
+                unsigned_event: UnsignedEventJson {
+                    kind: 1,
+                    created_at: time.timestamp(),
+                    content,
+                    tags: vec![],
+                    pubkey: pubkey_hex.clone(),
+                },
+            });
+        }
+    }
+
+    let total_pending = events_to_sign.len() as i32;
+    let next_unsigned = events_to_sign.first().map(|e| e.scheduled_for.clone());
+
+    info!(npub = %npub, pending = total_pending, "Generated pending events for signing");
+
+    Ok(Json(PendingEventsResponse {
+        events_to_sign,
+        total_pending,
+        next_unsigned,
+    }))
+}
+
+/// Store signed events from client.
+pub async fn store_signed_events(
+    State(state): State<SharedState>,
+    Json(req): Json<StoreSignedEventsRequest>,
+) -> ApiResult<StoreSignedEventsResponse> {
+    // Validate token and get npub
+    let npub = state
+        .get_presign_session_by_token(&req.token)
+        .await
+        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token or not a presign session"))?;
+
+    if req.signed_events.is_empty() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "No signed events provided"));
+    }
+
+    // Validate and prepare events for storage
+    let mut events_to_store = Vec::new();
+    for signed_input in &req.signed_events {
+        // Verify the event signature
+        signed_input.event.verify()
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, format!("Invalid event signature: {}", e)))?;
+
+        // Verify the event is from the correct user
+        let event_npub = signed_input.event.pubkey.to_bech32()
+            .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to encode pubkey: {}", e)))?;
+
+        if event_npub != npub {
+            return Err(api_error(StatusCode::BAD_REQUEST, "Event pubkey does not match session"));
+        }
+
+        // Extract content preview (first 100 chars)
+        let content_preview = if signed_input.event.content.len() > 100 {
+            format!("{}...", &signed_input.event.content[..97])
+        } else {
+            signed_input.event.content.clone()
+        };
+
+        events_to_store.push((
+            serde_json::to_string(&signed_input.event)
+                .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize event: {}", e)))?,
+            signed_input.event.id.to_hex(),
+            content_preview,
+            signed_input.scheduled_for.clone(),
+        ));
+    }
+
+    // Store events in database
+    let stored = signed_events::store_signed_events(&state.db, &npub, events_to_store)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    info!(npub = %npub, stored = stored, "Stored signed events");
+
+    Ok(Json(StoreSignedEventsResponse {
+        stored,
+        message: format!("Stored {} signed events", stored),
+    }))
+}
+
+/// Get event status/counts for a user.
+pub async fn get_event_status(
+    State(state): State<SharedState>,
+    Query(req): Query<PendingEventsRequest>,
+) -> ApiResult<EventStatusResponse> {
+    // Validate token and get npub
+    let npub = state
+        .get_presign_session_by_token(&req.token)
+        .await
+        .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token or not a presign session"))?;
+
+    // Get event counts
+    let counts = signed_events::get_event_counts(&state.db, &npub)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    // Get next pending event
+    let pending_events = signed_events::get_pending_events(&state.db, &npub, 1)
+        .await
+        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    let next_post = pending_events.first().map(|e| e.scheduled_for.clone());
+
+    Ok(Json(EventStatusResponse {
+        pending: counts.pending,
+        signed: counts.signed,
+        posted: counts.posted,
+        failed: counts.failed,
+        next_post,
     }))
 }
 

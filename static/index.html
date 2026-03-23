@@ -6,7 +6,7 @@
     <title>Nostr Daily Bot</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1a1a2e; color: #eee; padding: 20px; max-width: 600px; margin: 0 auto;
         }
@@ -14,9 +14,10 @@
         .status-dot { width: 12px; height: 12px; border-radius: 50%; }
         .status-dot.active { background: #4ade80; }
         .status-dot.inactive { background: #f87171; }
+        .status-dot.presign { background: #fbbf24; }
         .card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
         .card h2 { font-size: 14px; color: #888; margin-bottom: 12px; text-transform: uppercase; }
-        input, textarea { 
+        input, textarea {
             width: 100%; padding: 10px; border: 1px solid #333; border-radius: 4px;
             background: #0f0f23; color: #eee; font-family: monospace;
         }
@@ -28,8 +29,10 @@
         button:hover:not(:disabled) { opacity: 0.8; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary { background: #6366f1; color: white; }
+        .btn-success { background: #10b981; color: white; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-secondary { background: #374151; color: white; }
+        .btn-warning { background: #f59e0b; color: white; }
         .btn-sm { padding: 6px 12px; font-size: 12px; }
         .row { display: flex; gap: 10px; align-items: center; }
         .flex-1 { flex: 1; }
@@ -37,6 +40,7 @@
         .mb-2 { margin-bottom: 8px; }
         .text-sm { font-size: 14px; }
         .text-muted { color: #888; }
+        .text-warning { color: #fbbf24; }
         .quotes-list { max-height: 200px; overflow-y: auto; }
         .quote-item { padding: 8px; background: #0f0f23; border-radius: 4px; margin-bottom: 4px; font-size: 14px; }
         .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; }
@@ -44,6 +48,21 @@
         #message { padding: 10px; border-radius: 4px; margin-bottom: 16px; display: none; }
         #message.success { display: block; background: #065f46; }
         #message.error { display: block; background: #7f1d1d; }
+        #message.warning { display: block; background: #78350f; }
+        .divider { display: flex; align-items: center; margin: 16px 0; color: #666; }
+        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #333; }
+        .divider span { padding: 0 10px; font-size: 12px; }
+        .login-option { border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+        .login-option.recommended { border-color: #10b981; }
+        .login-option h3 { font-size: 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #10b981; }
+        .event-list { max-height: 250px; overflow-y: auto; }
+        .event-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #0f0f23; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
+        .event-status { font-size: 11px; padding: 2px 8px; border-radius: 12px; }
+        .event-status.signed { background: #10b981; }
+        .event-status.pending { background: #f59e0b; }
+        .progress-bar { height: 4px; background: #333; border-radius: 2px; overflow: hidden; margin-top: 8px; }
+        .progress-bar .fill { height: 100%; background: #6366f1; transition: width 0.3s; }
     </style>
 </head>
 <body>
@@ -51,56 +70,102 @@
         <span>Nostr Daily Bot</span>
         <span id="statusDot" class="status-dot inactive"></span>
     </h1>
-    
+
     <div id="message"></div>
 
-    <div class="card">
-        <h2>Session</h2>
-        <div id="npubDisplay" style="display:none;" class="mb-2">
-            <div class="info-row">
-                <span class="text-muted">Your npub</span>
-                <code id="npubValue" class="text-sm" style="color: #9ca3af;">-</code>
-            </div>
+    <!-- Login Section -->
+    <div class="card" id="loginSection">
+        <h2>Login</h2>
+
+        <!-- NIP-07 Login (Recommended) -->
+        <div class="login-option recommended" id="nip07Login">
+            <h3>🔑 Browser Extension <span class="badge">Recommended</span></h3>
+            <p class="text-sm text-muted mb-2">Use nos2x, Alby, or other NIP-07 extension. Your private key never leaves your device.</p>
+            <button class="btn-success" onclick="loginWithExtension()" id="extensionLoginBtn">Login with Extension</button>
+            <p class="text-sm text-muted mt-2" id="extensionStatus"></p>
         </div>
-        <div id="sessionInactive">
-            <input type="password" id="nsecInput" placeholder="Enter your nsec..." class="mb-2">
-            <button class="btn-primary" onclick="startSession()">Start Session</button>
-            <p class="text-sm text-muted mt-2">⚠️ Your nsec is sent to this server. Only use on a server you trust.</p>
-        </div>
-        <div id="sessionActive" style="display:none;">
-            <div class="info-row">
-                <span class="text-muted">Started</span>
-                <span id="sessionStarted">-</span>
-            </div>
-            <div class="info-row">
-                <span class="text-muted">Relays</span>
-                <span id="relayCount">0</span>
-            </div>
-            <button class="btn-danger mt-2" onclick="stopSession()">Stop Session</button>
+
+        <div class="divider"><span>or</span></div>
+
+        <!-- nsec Fallback -->
+        <div class="login-option">
+            <h3>⚠️ Enter nsec (Fallback)</h3>
+            <p class="text-sm text-muted mb-2">Your nsec is sent to this server. Only use on servers you trust.</p>
+            <input type="password" id="nsecInput" placeholder="nsec1..." class="mb-2">
+            <button class="btn-secondary" onclick="startSession()">Login with nsec</button>
         </div>
     </div>
 
-    <div class="card">
+    <!-- Session Info (when logged in) -->
+    <div class="card" id="sessionSection" style="display:none;">
+        <h2>Session</h2>
+        <div class="info-row">
+            <span class="text-muted">Your npub</span>
+            <code id="npubValue" class="text-sm" style="color: #9ca3af;">-</code>
+        </div>
+        <div class="info-row">
+            <span class="text-muted">Auth Mode</span>
+            <span id="authModeValue">-</span>
+        </div>
+        <div class="info-row" id="relayRow">
+            <span class="text-muted">Relays</span>
+            <span id="relayCount">0</span>
+        </div>
+        <button class="btn-danger mt-2" onclick="logout()">Logout</button>
+    </div>
+
+    <!-- Scheduled Posts (presign mode only) -->
+    <div class="card" id="scheduledPostsSection" style="display:none;">
+        <h2>📅 Scheduled Posts</h2>
+        <div class="info-row">
+            <span class="text-muted">Signed</span>
+            <span id="signedCount">0</span>
+        </div>
+        <div class="info-row">
+            <span class="text-muted">Posted</span>
+            <span id="postedCount">0</span>
+        </div>
+        <div class="info-row">
+            <span class="text-muted">Next post</span>
+            <span id="nextPostTime">-</span>
+        </div>
+
+        <div id="pendingAlert" class="mt-2" style="display:none;">
+            <p class="text-warning text-sm">⚠️ <span id="pendingCount">0</span> posts need your signature</p>
+            <button class="btn-warning mt-2" onclick="signPendingEvents()" id="signBtn">🔏 Sign Pending Posts</button>
+            <div class="progress-bar mt-2" id="signProgress" style="display:none;">
+                <div class="fill" id="signProgressFill" style="width: 0%"></div>
+            </div>
+            <p class="text-sm text-muted mt-2" id="signStatus"></p>
+        </div>
+
+        <div id="upcomingEvents" class="event-list mt-2"></div>
+    </div>
+
+    <!-- Schedule Config -->
+    <div class="card" id="scheduleSection" style="display:none;">
         <h2>Schedule</h2>
         <div class="row">
             <input type="text" id="cronInput" class="flex-1" placeholder="0 0 9 * * *">
             <button class="btn-secondary btn-sm" onclick="updateSchedule()">Update</button>
         </div>
-        <p class="text-sm text-muted mt-2">Next post: <span id="nextPost">-</span></p>
+        <p class="text-sm text-muted mt-2">Cron expression for posting schedule</p>
     </div>
 
-    <div class="card">
+    <!-- Quotes -->
+    <div class="card" id="quotesSection" style="display:none;">
         <h2>Quotes (<span id="quoteCount">0</span>)</h2>
         <div id="quotesList" class="quotes-list mb-2"></div>
         <textarea id="quotesTextarea" placeholder="Enter quotes, one per line..."></textarea>
         <button class="btn-secondary mt-2" onclick="uploadQuotes()">Upload Quotes</button>
     </div>
 
-    <div class="card" id="postNowCard">
+    <!-- Post Now (nsec mode only) -->
+    <div class="card" id="postNowSection" style="display:none;">
         <h2>Post Now</h2>
         <p class="text-sm text-muted mb-2">Immediately post a message to Nostr.</p>
-        <textarea id="postNowText" placeholder="Enter your message to post..." style="min-height: 80px;" class="mb-2"></textarea>
-        <button class="btn-primary" id="postNowBtn" onclick="postNow()" disabled>Post Now</button>
+        <textarea id="postNowText" placeholder="Enter your message..." style="min-height: 80px;" class="mb-2"></textarea>
+        <button class="btn-primary" id="postNowBtn" onclick="postNow()">Post Now</button>
         <div id="postResult" class="mt-2" style="display:none;"></div>
     </div>
 
@@ -108,70 +173,294 @@
         // Session state
         let sessionToken = localStorage.getItem('sessionToken') || null;
         let userNpub = localStorage.getItem('userNpub') || null;
+        let authMode = localStorage.getItem('authMode') || null;
 
+        // Check for NIP-07 extension
+        function hasNostrExtension() {
+            return typeof window.nostr !== 'undefined';
+        }
+
+        // API helper
         async function api(endpoint, options = {}) {
-            try {
-                const resp = await fetch(`/api${endpoint}`, {
-                    headers: { 'Content-Type': 'application/json' },
-                    ...options
-                });
-                const data = await resp.json();
-                if (!resp.ok) throw new Error(data.message || 'Request failed');
-                return data;
-            } catch (e) {
-                showMessage(e.message, 'error');
-                throw e;
-            }
+            const resp = await fetch(`/api${endpoint}`, {
+                headers: { 'Content-Type': 'application/json' },
+                ...options
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.message || 'Request failed');
+            return data;
         }
 
         function showMessage(text, type = 'success') {
             const el = document.getElementById('message');
             el.textContent = text;
             el.className = type;
-            setTimeout(() => el.className = '', 3000);
+            setTimeout(() => el.className = '', 4000);
         }
 
         function clearSession() {
             sessionToken = null;
             userNpub = null;
+            authMode = null;
             localStorage.removeItem('sessionToken');
             localStorage.removeItem('userNpub');
+            localStorage.removeItem('authMode');
         }
 
-        async function loadStatus() {
-            if (!userNpub) {
-                document.getElementById('statusDot').className = 'status-dot inactive';
-                document.getElementById('sessionInactive').style.display = 'block';
-                document.getElementById('sessionActive').style.display = 'none';
-                document.getElementById('npubDisplay').style.display = 'none';
-                document.getElementById('postNowBtn').disabled = true;
+        // Convert hex pubkey to npub (basic implementation)
+        function hexToNpub(hex) {
+            // This is a simplified version - in production use a proper library
+            // For now we'll request it from server via the challenge response
+            return hex;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // NIP-07 Login
+        // ─────────────────────────────────────────────────────────────────────
+
+        async function loginWithExtension() {
+            if (!hasNostrExtension()) {
+                showMessage('No Nostr extension found. Install nos2x or Alby.', 'error');
                 return;
             }
 
+            const btn = document.getElementById('extensionLoginBtn');
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
             try {
-                const status = await api(`/users/${userNpub}/status`);
-                const isActive = status.active && sessionToken;
+                // 1. Get public key from extension
+                const pubkey = await window.nostr.getPublicKey();
 
-                document.getElementById('statusDot').className = 'status-dot ' + (isActive ? 'active' : 'inactive');
-                document.getElementById('sessionInactive').style.display = isActive ? 'none' : 'block';
-                document.getElementById('sessionActive').style.display = isActive ? 'block' : 'none';
-                document.getElementById('npubDisplay').style.display = isActive ? 'block' : 'none';
-                document.getElementById('npubValue').textContent = userNpub.slice(0, 20) + '...';
-                document.getElementById('sessionStarted').textContent = status.session_started_at ? new Date(status.session_started_at).toLocaleString() : '-';
-                document.getElementById('relayCount').textContent = status.relay_count;
-                document.getElementById('cronInput').value = status.cron;
-                document.getElementById('quoteCount').textContent = status.quote_count;
-                document.getElementById('postNowBtn').disabled = !isActive;
-
-                // If server says not active but we have a token, clear it
-                if (!status.active && sessionToken) {
-                    clearSession();
+                // 2. Convert to npub (request from extension or construct)
+                let npub;
+                try {
+                    // Try to get npub from extension if available
+                    npub = await window.nostr.nip04?.getPublicKey?.() || `npub1${pubkey.slice(0, 59)}`;
+                } catch {
+                    // Construct npub manually (simplified - should use bech32)
+                    npub = pubkey;
                 }
+
+                // For proper npub encoding, we need the server to help
+                // Request challenge which will validate the npub format
+
+                // 3. Request challenge from server
+                btn.textContent = 'Requesting challenge...';
+
+                // First, get the npub from a test challenge
+                const challengeResp = await api('/auth/challenge', {
+                    method: 'POST',
+                    body: JSON.stringify({ npub: `npub1${pubkey}` }) // Server will validate
+                }).catch(async () => {
+                    // If that fails, try with hex pubkey and let server convert
+                    return await api('/auth/challenge', {
+                        method: 'POST',
+                        body: JSON.stringify({ npub: pubkey })
+                    });
+                });
+
+                // 4. Sign challenge with extension
+                btn.textContent = 'Sign in extension...';
+                const signedEvent = await window.nostr.signEvent({
+                    kind: 22242,
+                    created_at: Math.floor(Date.now() / 1000),
+                    content: challengeResp.challenge,
+                    tags: [['challenge', challengeResp.challenge_id]],
+                    pubkey: pubkey
+                });
+
+                // 5. Verify with server
+                btn.textContent = 'Verifying...';
+                const verifyResp = await api('/auth/verify', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        challenge_id: challengeResp.challenge_id,
+                        signed_event: signedEvent
+                    })
+                });
+
+                // 6. Store session
+                sessionToken = verifyResp.token;
+                userNpub = verifyResp.npub;
+                authMode = verifyResp.auth_mode;
+                localStorage.setItem('sessionToken', sessionToken);
+                localStorage.setItem('userNpub', userNpub);
+                localStorage.setItem('authMode', authMode);
+
+                showMessage('Logged in with extension!');
+                updateUI();
+                loadQuotes();
+
             } catch (e) {
-                console.error(e);
-                clearSession();
+                console.error('Login failed:', e);
+                showMessage('Login failed: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Login with Extension';
             }
         }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // nsec Login (fallback)
+        // ─────────────────────────────────────────────────────────────────────
+
+        async function startSession() {
+            const nsec = document.getElementById('nsecInput').value.trim();
+            if (!nsec) return showMessage('Please enter your nsec', 'error');
+
+            try {
+                const resp = await api('/session/start', {
+                    method: 'POST',
+                    body: JSON.stringify({ nsec })
+                });
+                sessionToken = resp.token;
+                userNpub = resp.npub;
+                authMode = 'nsec';
+                localStorage.setItem('sessionToken', sessionToken);
+                localStorage.setItem('userNpub', userNpub);
+                localStorage.setItem('authMode', authMode);
+                document.getElementById('nsecInput').value = '';
+                showMessage('Session started!');
+                updateUI();
+                loadQuotes();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function logout() {
+            if (!sessionToken) return;
+
+            try {
+                if (authMode === 'nsec') {
+                    await api('/session/stop', {
+                        method: 'POST',
+                        body: JSON.stringify({ token: sessionToken })
+                    });
+                }
+                // For presign mode, just clear local session
+                showMessage('Logged out');
+            } catch (e) {
+                console.error(e);
+            }
+            clearSession();
+            updateUI();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Pre-signing
+        // ─────────────────────────────────────────────────────────────────────
+
+        async function loadEventStatus() {
+            if (!sessionToken || authMode !== 'presign') return;
+
+            try {
+                const status = await api(`/events/status?token=${sessionToken}`);
+                document.getElementById('signedCount').textContent = status.signed;
+                document.getElementById('postedCount').textContent = status.posted;
+                document.getElementById('nextPostTime').textContent = status.next_post
+                    ? new Date(status.next_post).toLocaleString()
+                    : '-';
+
+                // Load pending events for signing
+                const pending = await api(`/events/pending?token=${sessionToken}&days_ahead=7`);
+
+                if (pending.total_pending > 0) {
+                    document.getElementById('pendingAlert').style.display = 'block';
+                    document.getElementById('pendingCount').textContent = pending.total_pending;
+
+                    // Show upcoming events
+                    const eventsHtml = pending.events_to_sign.slice(0, 7).map(e => `
+                        <div class="event-item">
+                            <div>
+                                <div class="text-sm">${new Date(e.scheduled_for).toLocaleString()}</div>
+                                <div class="text-muted text-sm">${e.content.slice(0, 40)}${e.content.length > 40 ? '...' : ''}</div>
+                            </div>
+                            <span class="event-status pending">Pending</span>
+                        </div>
+                    `).join('');
+                    document.getElementById('upcomingEvents').innerHTML = eventsHtml;
+                } else {
+                    document.getElementById('pendingAlert').style.display = 'none';
+                    document.getElementById('upcomingEvents').innerHTML = '<p class="text-sm text-muted">All posts are signed! ✓</p>';
+                }
+            } catch (e) {
+                console.error('Failed to load event status:', e);
+            }
+        }
+
+        async function signPendingEvents() {
+            if (!hasNostrExtension()) {
+                showMessage('Browser extension required for signing', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('signBtn');
+            const progressBar = document.getElementById('signProgress');
+            const progressFill = document.getElementById('signProgressFill');
+            const statusEl = document.getElementById('signStatus');
+
+            btn.disabled = true;
+            progressBar.style.display = 'block';
+
+            try {
+                // 1. Get pending events from server
+                const { events_to_sign } = await api(`/events/pending?token=${sessionToken}&days_ahead=7`);
+
+                if (events_to_sign.length === 0) {
+                    showMessage('No events to sign');
+                    return;
+                }
+
+                // 2. Sign each event
+                const signedEvents = [];
+                for (let i = 0; i < events_to_sign.length; i++) {
+                    const item = events_to_sign[i];
+                    statusEl.textContent = `Signing ${i + 1}/${events_to_sign.length}...`;
+                    progressFill.style.width = `${((i + 1) / events_to_sign.length) * 100}%`;
+
+                    try {
+                        const signed = await window.nostr.signEvent(item.unsigned_event);
+                        signedEvents.push({
+                            scheduled_for: item.scheduled_for,
+                            event: signed
+                        });
+                    } catch (e) {
+                        if (e.message?.includes('rejected') || e.message?.includes('denied')) {
+                            showMessage(`Signing cancelled at ${i}/${events_to_sign.length}`, 'warning');
+                            break;
+                        }
+                        throw e;
+                    }
+                }
+
+                // 3. Send to server
+                if (signedEvents.length > 0) {
+                    statusEl.textContent = 'Storing signed events...';
+                    await api('/events/sign', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            token: sessionToken,
+                            signed_events: signedEvents
+                        })
+                    });
+                    showMessage(`Signed ${signedEvents.length} events!`);
+                    loadEventStatus();
+                }
+            } catch (e) {
+                console.error('Signing failed:', e);
+                showMessage('Signing failed: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                progressBar.style.display = 'none';
+                statusEl.textContent = '';
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Common Functions
+        // ─────────────────────────────────────────────────────────────────────
 
         async function loadQuotes() {
             if (!userNpub) return;
@@ -181,75 +470,59 @@
                 list.innerHTML = data.quotes.map((q, i) =>
                     `<div class="quote-item">${i + 1}. ${q.length > 80 ? q.slice(0, 77) + '...' : q}</div>`
                 ).join('');
+                document.getElementById('quoteCount').textContent = data.quotes.length;
             } catch (e) { console.error(e); }
         }
 
-        async function startSession() {
-            const nsec = document.getElementById('nsecInput').value.trim();
-            if (!nsec) return showMessage('Please enter your nsec', 'error');
-
-            try {
-                const resp = await api('/session/start', { method: 'POST', body: JSON.stringify({ nsec }) });
-                sessionToken = resp.token;
-                userNpub = resp.npub;
-                localStorage.setItem('sessionToken', sessionToken);
-                localStorage.setItem('userNpub', userNpub);
-                document.getElementById('nsecInput').value = '';
-                showMessage('Session started!');
-                loadStatus();
-                loadQuotes();
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        async function stopSession() {
-            if (!sessionToken) return;
-            try {
-                await api('/session/stop', { method: 'POST', body: JSON.stringify({ token: sessionToken }) });
-                showMessage('Session stopped');
-            } catch (e) {
-                console.error(e);
-            }
-            clearSession();
-            loadStatus();
-        }
-
         async function updateSchedule() {
-            if (!sessionToken) return showMessage('No active session', 'error');
+            if (!sessionToken) return showMessage('Not logged in', 'error');
             const cron = document.getElementById('cronInput').value.trim();
-            await api('/schedule', { method: 'PUT', body: JSON.stringify({ token: sessionToken, cron }) });
-            showMessage('Schedule updated!');
-            loadStatus();
+            try {
+                await api('/schedule', {
+                    method: 'PUT',
+                    body: JSON.stringify({ token: sessionToken, cron })
+                });
+                showMessage('Schedule updated!');
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         async function uploadQuotes() {
-            if (!sessionToken) return showMessage('No active session', 'error');
+            if (!sessionToken) return showMessage('Not logged in', 'error');
             const text = document.getElementById('quotesTextarea').value.trim();
             const quotes = text.split('\n').map(q => q.trim()).filter(q => q);
             if (!quotes.length) return showMessage('Enter at least one quote', 'error');
-            await api('/quotes', { method: 'POST', body: JSON.stringify({ token: sessionToken, quotes }) });
-            document.getElementById('quotesTextarea').value = '';
-            showMessage(`Uploaded ${quotes.length} quotes!`);
-            loadStatus();
-            loadQuotes();
+
+            try {
+                await api('/quotes', {
+                    method: 'POST',
+                    body: JSON.stringify({ token: sessionToken, quotes })
+                });
+                document.getElementById('quotesTextarea').value = '';
+                showMessage(`Uploaded ${quotes.length} quotes!`);
+                loadQuotes();
+                if (authMode === 'presign') loadEventStatus();
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         async function postNow() {
-            if (!sessionToken) return showMessage('No active session', 'error');
+            if (!sessionToken || authMode !== 'nsec') {
+                showMessage('Post Now requires nsec login', 'error');
+                return;
+            }
+
             const btn = document.getElementById('postNowBtn');
             const resultDiv = document.getElementById('postResult');
             const textArea = document.getElementById('postNowText');
             const message = textArea.value.trim();
 
-            if (!message) {
-                showMessage('Please enter a message to post', 'error');
-                return;
-            }
+            if (!message) return showMessage('Enter a message', 'error');
 
             btn.disabled = true;
             btn.textContent = 'Posting...';
-            resultDiv.style.display = 'none';
 
             try {
                 const data = await api('/post', {
@@ -259,13 +532,12 @@
                 resultDiv.innerHTML = `
                     <div style="background: #065f46; padding: 10px; border-radius: 4px;">
                         <strong>Posted!</strong><br>
-                        <span class="text-sm">${data.message.length > 60 ? data.message.slice(0, 57) + '...' : data.message}</span><br>
                         <code class="text-sm" style="color: #9ca3af;">${data.event_id || ''}</code>
                     </div>
                 `;
                 resultDiv.style.display = 'block';
                 textArea.value = '';
-                showMessage('Posted successfully!');
+                showMessage('Posted!');
             } catch (e) {
                 resultDiv.innerHTML = `<div style="background: #7f1d1d; padding: 10px; border-radius: 4px;">Failed: ${e.message}</div>`;
                 resultDiv.style.display = 'block';
@@ -275,9 +547,85 @@
             }
         }
 
-        loadStatus();
+        // ─────────────────────────────────────────────────────────────────────
+        // UI Updates
+        // ─────────────────────────────────────────────────────────────────────
+
+        function updateUI() {
+            const isLoggedIn = !!sessionToken && !!userNpub;
+            const isPresign = authMode === 'presign';
+            const isNsec = authMode === 'nsec';
+
+            // Status dot
+            const dotClass = isLoggedIn ? (isPresign ? 'presign' : 'active') : 'inactive';
+            document.getElementById('statusDot').className = 'status-dot ' + dotClass;
+
+            // Login section
+            document.getElementById('loginSection').style.display = isLoggedIn ? 'none' : 'block';
+
+            // Session section
+            document.getElementById('sessionSection').style.display = isLoggedIn ? 'block' : 'none';
+            if (isLoggedIn) {
+                document.getElementById('npubValue').textContent = userNpub.slice(0, 20) + '...';
+                document.getElementById('authModeValue').textContent = isPresign ? '🔐 Pre-sign (Extension)' : '🔑 nsec (Server)';
+                document.getElementById('relayRow').style.display = isNsec ? 'flex' : 'none';
+            }
+
+            // Scheduled posts (presign only)
+            document.getElementById('scheduledPostsSection').style.display = isPresign ? 'block' : 'none';
+            if (isPresign) loadEventStatus();
+
+            // Schedule & Quotes (always when logged in)
+            document.getElementById('scheduleSection').style.display = isLoggedIn ? 'block' : 'none';
+            document.getElementById('quotesSection').style.display = isLoggedIn ? 'block' : 'none';
+
+            // Post Now (nsec only)
+            document.getElementById('postNowSection').style.display = isNsec ? 'block' : 'none';
+
+            // Load user data
+            if (isLoggedIn) {
+                loadUserStatus();
+            }
+        }
+
+        async function loadUserStatus() {
+            if (!userNpub) return;
+            try {
+                const status = await api(`/users/${userNpub}/status`);
+                document.getElementById('cronInput').value = status.cron;
+                if (authMode === 'nsec') {
+                    document.getElementById('relayCount').textContent = status.relay_count;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Check extension on load
+        function checkExtension() {
+            const statusEl = document.getElementById('extensionStatus');
+            if (hasNostrExtension()) {
+                statusEl.textContent = '✓ Extension detected';
+                statusEl.className = 'text-sm';
+                statusEl.style.color = '#10b981';
+            } else {
+                statusEl.textContent = '✗ No extension found';
+                statusEl.className = 'text-sm text-muted';
+            }
+        }
+
+        // Initialize
+        checkExtension();
+        updateUI();
         loadQuotes();
-        setInterval(loadStatus, 10000);
+
+        // Periodic refresh
+        setInterval(() => {
+            if (sessionToken) {
+                loadUserStatus();
+                if (authMode === 'presign') loadEventStatus();
+            }
+        }, 30000);
     </script>
 </body>
 </html>

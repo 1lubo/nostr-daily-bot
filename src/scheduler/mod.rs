@@ -1,6 +1,7 @@
 //! Scheduler module for cron-based job execution.
 
 mod error;
+pub mod presign;
 
 use std::future::Future;
 use std::pin::Pin;

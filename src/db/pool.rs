@@ -1,47 +1,37 @@
 //! Database connection pool and initialization.
 
-use std::path::PathBuf;
+use std::env;
 
 use anyhow::{Context, Result};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 use tracing::info;
 
-/// Type alias for the SQLite connection pool.
-pub type DbPool = SqlitePool;
+/// Type alias for the PostgreSQL connection pool.
+pub type DbPool = PgPool;
 
-/// Get the database file path.
-pub fn db_path() -> Result<PathBuf> {
-    let proj_dirs = directories::ProjectDirs::from("com", "nostr", "nostr-daily-bot")
-        .context("Could not determine config directory")?;
-
-    let data_dir = proj_dirs.data_dir();
-
-    // Create directory if it doesn't exist
-    if !data_dir.exists() {
-        std::fs::create_dir_all(data_dir).context("Failed to create data directory")?;
-    }
-
-    Ok(data_dir.join("nostr_daily_bot.db"))
+/// Get the database URL from environment.
+pub fn database_url() -> Result<String> {
+    env::var("DATABASE_URL").context(
+        "DATABASE_URL environment variable not set. \
+         Set it to a PostgreSQL connection string like: \
+         postgres://user:password@host/database"
+    )
 }
 
 /// Initialize the database connection pool and run migrations.
 pub async fn init_db() -> Result<DbPool> {
-    let db_path = db_path()?;
-    
-    info!(path = %db_path.display(), "Initializing database");
+    let db_url = database_url()?;
 
-    let options = SqliteConnectOptions::new()
-        .filename(&db_path)
-        .create_if_missing(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .foreign_keys(true);
+    // Mask password in log
+    let masked_url = mask_db_url(&db_url);
+    info!(url = %masked_url, "Connecting to PostgreSQL database");
 
-    let pool = SqlitePoolOptions::new()
+    let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect_with(options)
+        .connect(&db_url)
         .await
-        .context("Failed to connect to database")?;
+        .context("Failed to connect to PostgreSQL database")?;
 
     // Run migrations
     run_migrations(&pool).await?;
@@ -51,7 +41,7 @@ pub async fn init_db() -> Result<DbPool> {
 }
 
 /// Run database migrations.
-async fn run_migrations(pool: &SqlitePool) -> Result<()> {
+async fn run_migrations(pool: &PgPool) -> Result<()> {
     info!("Running database migrations");
 
     // Run all migrations in order
@@ -71,31 +61,35 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
+/// Mask the password in a database URL for logging.
+fn mask_db_url(url: &str) -> String {
+    // Simple masking: replace password portion
+    if let Some(at_pos) = url.find('@') {
+        if let Some(colon_pos) = url[..at_pos].rfind(':') {
+            let prefix = &url[..colon_pos + 1];
+            let suffix = &url[at_pos..];
+            return format!("{}****{}", prefix, suffix);
+        }
+    }
+    url.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_init_db() {
-        // Use in-memory database for testing
-        let pool = SqlitePoolOptions::new()
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+    #[test]
+    fn test_mask_db_url() {
+        let url = "postgres://user:secret123@localhost/db";
+        let masked = mask_db_url(url);
+        assert_eq!(masked, "postgres://user:****@localhost/db");
+    }
 
-        let migration_sql = include_str!("../../migrations/001_initial.sql");
-        sqlx::raw_sql(migration_sql)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        // Verify tables exist
-        let result: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        
-        assert_eq!(result.0, 0);
+    #[test]
+    fn test_mask_db_url_no_password() {
+        let url = "postgres://localhost/db";
+        let masked = mask_db_url(url);
+        assert_eq!(masked, "postgres://localhost/db");
     }
 }
 
