@@ -313,17 +313,27 @@ pub async fn auth_challenge(
     State(state): State<SharedState>,
     Json(req): Json<ChallengeRequest>,
 ) -> ApiResult<ChallengeResponse> {
-    // Validate npub format
-    if !req.npub.starts_with("npub1") {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Invalid npub format"));
-    }
+    // Accept either npub or hex pubkey and normalize to npub
+    let npub = if req.npub.starts_with("npub1") {
+        // Validate it's a proper npub
+        PublicKey::parse(&req.npub)
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid npub format"))?
+            .to_bech32()
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid npub format"))?
+    } else {
+        // Assume it's a hex pubkey and convert to npub
+        PublicKey::parse(&req.npub)
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid pubkey format"))?
+            .to_bech32()
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Failed to convert pubkey to npub"))?
+    };
 
     // Create challenge in database
-    let challenge = challenges::create_challenge(&state.db, &req.npub)
+    let challenge = challenges::create_challenge(&state.db, &npub)
         .await
         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create challenge: {}", e)))?;
 
-    info!(npub = %req.npub, challenge_id = %challenge.id, "Auth challenge created");
+    info!(npub = %npub, challenge_id = %challenge.id, "Auth challenge created");
 
     Ok(Json(ChallengeResponse {
         challenge_id: challenge.id,
@@ -355,11 +365,16 @@ pub async fn auth_verify(
             api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to complete authentication")
         })?;
 
-    // Check if already has active session
-    if state.has_session(&verify_result.npub).await {
+    // For presign sessions, we allow replacing existing sessions
+    // (unlike nsec sessions which hold server-side keys)
+    // Remove any existing presign session for this user
+    state.presign_sessions.write().await.remove(&verify_result.npub);
+
+    // But block if there's an active nsec session (which has server-side state)
+    if state.sessions.read().await.contains_key(&verify_result.npub) {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
-            "Session already active for this user",
+            "An nsec session is already active for this user. Stop it first.",
         ));
     }
 
@@ -450,7 +465,7 @@ pub async fn get_pending_events(
         .await
         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
 
-    // Get post count for quote rotation
+    // Get post count for quote tracking (to know which quotes have been used)
     let post_count = history::get_post_count(&state.db, &npub).await.unwrap_or(0) as usize;
     let existing_count = existing_times.len();
 
@@ -459,12 +474,29 @@ pub async fn get_pending_events(
         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Invalid npub: {}", e)))?;
     let pubkey_hex = pubkey.to_hex();
 
+    // Calculate how many quotes have already been used (posted + signed)
+    let used_count = post_count + existing_count;
+
+    // Only generate events for remaining unused quotes (no repetition)
+    let remaining_quotes = if used_count >= user_quotes.len() {
+        0 // All quotes have been used
+    } else {
+        user_quotes.len() - used_count
+    };
+
     // Generate unsigned events for times that don't have signed events
+    // Limited to the number of remaining unused quotes
     let mut events_to_sign = Vec::new();
-    for (i, time) in posting_times.iter().enumerate() {
+    let mut quote_offset = 0;
+
+    for time in posting_times.iter() {
+        if quote_offset >= remaining_quotes {
+            break; // No more unused quotes
+        }
+
         let time_str = time.to_rfc3339();
         if !existing_times.contains(&time_str) {
-            let quote_idx = (post_count + existing_count + i) % user_quotes.len();
+            let quote_idx = used_count + quote_offset;
             let content = user_quotes[quote_idx].content.clone();
 
             events_to_sign.push(EventToSign {
@@ -478,6 +510,8 @@ pub async fn get_pending_events(
                     pubkey: pubkey_hex.clone(),
                 },
             });
+
+            quote_offset += 1;
         }
     }
 

@@ -229,38 +229,17 @@
             btn.textContent = 'Connecting...';
 
             try {
-                // 1. Get public key from extension
+                // 1. Get public key from extension (returns hex)
                 const pubkey = await window.nostr.getPublicKey();
 
-                // 2. Convert to npub (request from extension or construct)
-                let npub;
-                try {
-                    // Try to get npub from extension if available
-                    npub = await window.nostr.nip04?.getPublicKey?.() || `npub1${pubkey.slice(0, 59)}`;
-                } catch {
-                    // Construct npub manually (simplified - should use bech32)
-                    npub = pubkey;
-                }
-
-                // For proper npub encoding, we need the server to help
-                // Request challenge which will validate the npub format
-
-                // 3. Request challenge from server
+                // 2. Request challenge from server (send hex pubkey, server converts to npub)
                 btn.textContent = 'Requesting challenge...';
-
-                // First, get the npub from a test challenge
                 const challengeResp = await api('/auth/challenge', {
                     method: 'POST',
-                    body: JSON.stringify({ npub: `npub1${pubkey}` }) // Server will validate
-                }).catch(async () => {
-                    // If that fails, try with hex pubkey and let server convert
-                    return await api('/auth/challenge', {
-                        method: 'POST',
-                        body: JSON.stringify({ npub: pubkey })
-                    });
+                    body: JSON.stringify({ npub: pubkey }) // Server accepts hex and converts
                 });
 
-                // 4. Sign challenge with extension
+                // 3. Sign challenge with extension
                 btn.textContent = 'Sign in extension...';
                 const signedEvent = await window.nostr.signEvent({
                     kind: 22242,
