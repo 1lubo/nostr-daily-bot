@@ -215,6 +215,33 @@ pub struct CronPostResponse {
     pub failed: i32,
 }
 
+#[derive(Serialize)]
+pub struct DebugStatusResponse {
+    pub current_time: String,
+    pub counts: DebugCounts,
+    pub pending_events: Vec<DebugEvent>,
+    pub recent_posted: Vec<DebugEvent>,
+    pub recent_failed: Vec<DebugEvent>,
+}
+
+#[derive(Serialize)]
+pub struct DebugCounts {
+    pub pending: i32,
+    pub posted: i32,
+    pub failed: i32,
+}
+
+#[derive(Serialize)]
+pub struct DebugEvent {
+    pub id: i64,
+    pub user_npub: String,
+    pub scheduled_for: String,
+    pub status: String,
+    pub content_preview: String,
+    pub is_due: bool,
+    pub error_message: Option<String>,
+}
+
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<MessageResponse>)>;
 
 fn api_error(
@@ -1170,4 +1197,104 @@ pub async fn cron_post_due(State(state): State<SharedState>) -> ApiResult<CronPo
             ))
         }
     }
+}
+
+/// Debug endpoint to check database state for signed events.
+pub async fn debug_status(State(state): State<SharedState>) -> ApiResult<DebugStatusResponse> {
+    let now = Utc::now();
+
+    // Get counts
+    let counts = signed_events::get_event_counts_all(&state.db)
+        .await
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get counts: {}", e),
+            )
+        })?;
+
+    // Get pending events
+    let pending_rows = signed_events::get_all_pending(&state.db, 20)
+        .await
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get pending: {}", e),
+            )
+        })?;
+
+    let pending_events: Vec<DebugEvent> = pending_rows
+        .into_iter()
+        .map(|e| {
+            let scheduled_dt = DateTime::parse_from_rfc3339(&e.scheduled_for).ok();
+            let is_due = scheduled_dt.map(|dt| dt <= now).unwrap_or(false);
+            DebugEvent {
+                id: e.id,
+                user_npub: format!("{}...", &e.user_npub[..20.min(e.user_npub.len())]),
+                scheduled_for: e.scheduled_for,
+                status: e.status,
+                content_preview: e.content_preview,
+                is_due,
+                error_message: e.error_message,
+            }
+        })
+        .collect();
+
+    // Get recent posted events
+    let posted_rows = signed_events::get_recent_by_status(&state.db, "posted", 5)
+        .await
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get posted: {}", e),
+            )
+        })?;
+
+    let recent_posted: Vec<DebugEvent> = posted_rows
+        .into_iter()
+        .map(|e| DebugEvent {
+            id: e.id,
+            user_npub: format!("{}...", &e.user_npub[..20.min(e.user_npub.len())]),
+            scheduled_for: e.scheduled_for,
+            status: e.status,
+            content_preview: e.content_preview,
+            is_due: false,
+            error_message: e.error_message,
+        })
+        .collect();
+
+    // Get recent failed events
+    let failed_rows = signed_events::get_recent_by_status(&state.db, "failed", 5)
+        .await
+        .map_err(|e| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get failed: {}", e),
+            )
+        })?;
+
+    let recent_failed: Vec<DebugEvent> = failed_rows
+        .into_iter()
+        .map(|e| DebugEvent {
+            id: e.id,
+            user_npub: format!("{}...", &e.user_npub[..20.min(e.user_npub.len())]),
+            scheduled_for: e.scheduled_for,
+            status: e.status,
+            content_preview: e.content_preview,
+            is_due: false,
+            error_message: e.error_message,
+        })
+        .collect();
+
+    Ok(Json(DebugStatusResponse {
+        current_time: now.to_rfc3339(),
+        counts: DebugCounts {
+            pending: counts.pending,
+            posted: counts.posted,
+            failed: counts.failed,
+        },
+        pending_events,
+        recent_posted,
+        recent_failed,
+    }))
 }

@@ -251,3 +251,38 @@ pub async fn get_event_counts_all(pool: &PgPool) -> Result<EventCounts> {
         failed: failed as i32,
     })
 }
+
+/// Get all pending events (for debugging).
+pub async fn get_all_pending(pool: &PgPool, limit: i32) -> Result<Vec<SignedEvent>> {
+    let rows: Vec<SignedEventRow> = sqlx::query_as(
+        "SELECT id, user_npub, event_json, event_id, content_preview, scheduled_for, status, posted_at, error_message, created_at
+         FROM signed_events
+         WHERE status = 'pending'
+         ORDER BY scheduled_for ASC
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch pending events")?;
+
+    Ok(rows.into_iter().map(row_to_signed_event).collect())
+}
+
+/// Get recent events by status (for debugging).
+pub async fn get_recent_by_status(pool: &PgPool, status: &str, limit: i32) -> Result<Vec<SignedEvent>> {
+    let rows: Vec<SignedEventRow> = sqlx::query_as(
+        "SELECT id, user_npub, event_json, event_id, content_preview, scheduled_for, status, posted_at, error_message, created_at
+         FROM signed_events
+         WHERE status = $1
+         ORDER BY COALESCE(posted_at, created_at) DESC
+         LIMIT $2",
+    )
+    .bind(status)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch events by status")?;
+
+    Ok(rows.into_iter().map(row_to_signed_event).collect())
+}

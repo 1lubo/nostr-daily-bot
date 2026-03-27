@@ -33,5 +33,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/post", post(handlers::post_now))
         // Cron webhook for external schedulers (serverless-friendly)
         .route("/api/cron/post", get(handlers::cron_post_due))
+        // Debug endpoint
+        .route("/api/debug/status", get(handlers::debug_status))
         .with_state(state)
 }
