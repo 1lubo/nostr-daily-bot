@@ -6,9 +6,10 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::Utc;
 use nostr_sdk::prelude::*;
 use sqlx::PgPool;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::db::{history, signed_events};
 
@@ -37,13 +38,33 @@ pub async fn run_presign_scheduler(db: PgPool) {
 /// Post all due pre-signed events. Returns (posted_count, failed_count).
 /// This can be called from the background scheduler or from an external cron webhook.
 pub async fn post_due_events(db: &PgPool) -> Result<(i32, i32)> {
+    let now = Utc::now();
+    debug!(now = %now, "Checking for due pre-signed events");
+
     let due_events = signed_events::get_all_due(db).await?;
 
     if due_events.is_empty() {
+        debug!(now = %now, "No due events found");
         return Ok((0, 0));
     }
 
-    info!(count = due_events.len(), "Found due pre-signed events");
+    info!(
+        count = due_events.len(),
+        now = %now,
+        "Found due pre-signed events to post"
+    );
+
+    // Log details of each due event
+    for event in &due_events {
+        info!(
+            event_id = event.id,
+            scheduled_for = %event.scheduled_for,
+            npub = %event.user_npub,
+            status = %event.status,
+            content_preview = %event.content_preview,
+            "Due event details"
+        );
+    }
 
     let mut posted = 0;
     let mut failed = 0;
@@ -56,6 +77,7 @@ pub async fn post_due_events(db: &PgPool) -> Result<(i32, i32)> {
         }
     }
 
+    info!(posted = posted, failed = failed, "Finished posting due events");
     Ok((posted, failed))
 }
 

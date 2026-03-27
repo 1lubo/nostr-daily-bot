@@ -1126,20 +1126,36 @@ use crate::scheduler::presign::post_due_events;
 /// - GitHub Actions
 /// - UptimeRobot (free, can ping URLs)
 pub async fn cron_post_due(State(state): State<SharedState>) -> ApiResult<CronPostResponse> {
-    info!("Cron webhook triggered - checking for due events");
+    let now = Utc::now();
+    info!(now = %now, "Cron webhook triggered - checking for due events");
+
+    // First, let's check what pending events exist in the database
+    match signed_events::get_event_counts_all(&state.db).await {
+        Ok(counts) => {
+            info!(
+                total_pending = counts.pending,
+                total_posted = counts.posted,
+                total_failed = counts.failed,
+                "Current signed_events status"
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to get event counts for logging");
+        }
+    }
 
     let result = post_due_events(&state.db).await;
 
     match result {
         Ok((posted, failed)) => {
             let processed = posted + failed;
-            if processed > 0 {
-                info!(
-                    posted = posted,
-                    failed = failed,
-                    "Cron: processed due events"
-                );
-            }
+            info!(
+                processed = processed,
+                posted = posted,
+                failed = failed,
+                now = %now,
+                "Cron: finished processing"
+            );
             Ok(Json(CronPostResponse {
                 processed,
                 posted,
@@ -1147,7 +1163,7 @@ pub async fn cron_post_due(State(state): State<SharedState>) -> ApiResult<CronPo
             }))
         }
         Err(e) => {
-            error!(error = %e, "Cron: failed to process due events");
+            error!(error = %e, now = %now, "Cron: failed to process due events");
             Err(api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to process events: {}", e),

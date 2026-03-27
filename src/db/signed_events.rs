@@ -226,3 +226,28 @@ pub async fn cancel_pending_events(pool: &PgPool, user_npub: &str) -> Result<i32
 
     Ok(result.rows_affected() as i32)
 }
+
+/// Get event counts across all users (for logging/debugging).
+pub async fn get_event_counts_all(pool: &PgPool) -> Result<EventCounts> {
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM signed_events WHERE status = 'pending'")
+            .fetch_one(pool)
+            .await?;
+
+    let posted: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM signed_events WHERE status = 'posted'")
+            .fetch_one(pool)
+            .await?;
+
+    let failed: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM signed_events WHERE status = 'failed'")
+            .fetch_one(pool)
+            .await?;
+
+    Ok(EventCounts {
+        pending: pending as i32,
+        signed: pending as i32,
+        posted: posted as i32,
+        failed: failed as i32,
+    })
+}
