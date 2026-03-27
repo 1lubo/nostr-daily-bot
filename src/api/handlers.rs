@@ -892,9 +892,9 @@ pub async fn upload_quotes(
     State(state): State<SharedState>,
     Json(req): Json<UploadQuotesRequest>,
 ) -> ApiResult<MessageResponse> {
-    // Validate token and get npub
+    // Validate token and get npub (check both nsec and presign sessions)
     let npub = state
-        .get_session_by_token(&req.token)
+        .get_any_session_by_token(&req.token)
         .await
         .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token"))?;
 
@@ -946,9 +946,9 @@ pub async fn update_schedule(
     State(state): State<SharedState>,
     Json(req): Json<UpdateScheduleRequest>,
 ) -> ApiResult<MessageResponse> {
-    // Validate token and get npub
+    // Validate token and get npub (check both nsec and presign sessions)
     let npub = state
-        .get_session_by_token(&req.token)
+        .get_any_session_by_token(&req.token)
         .await
         .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, "Invalid session token"))?;
 

@@ -122,4 +122,14 @@ impl AppState {
     pub async fn active_session_count(&self) -> usize {
         self.sessions.read().await.len() + self.presign_sessions.read().await.len()
     }
+
+    /// Get npub by token from either session type.
+    pub async fn get_any_session_by_token(&self, token: &str) -> Option<String> {
+        // Check nsec sessions first
+        if let Some(npub) = self.get_session_by_token(token).await {
+            return Some(npub);
+        }
+        // Then check presign sessions
+        self.get_presign_session_by_token(token).await
+    }
 }
