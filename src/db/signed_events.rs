@@ -270,7 +270,11 @@ pub async fn get_all_pending(pool: &PgPool, limit: i32) -> Result<Vec<SignedEven
 }
 
 /// Get recent events by status (for debugging).
-pub async fn get_recent_by_status(pool: &PgPool, status: &str, limit: i32) -> Result<Vec<SignedEvent>> {
+pub async fn get_recent_by_status(
+    pool: &PgPool,
+    status: &str,
+    limit: i32,
+) -> Result<Vec<SignedEvent>> {
     let rows: Vec<SignedEventRow> = sqlx::query_as(
         "SELECT id, user_npub, event_json, event_id, content_preview, scheduled_for, status, posted_at, error_message, created_at
          FROM signed_events

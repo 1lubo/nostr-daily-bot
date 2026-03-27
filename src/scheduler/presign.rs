@@ -77,7 +77,11 @@ pub async fn post_due_events(db: &PgPool) -> Result<(i32, i32)> {
         }
     }
 
-    info!(posted = posted, failed = failed, "Finished posting due events");
+    info!(
+        posted = posted,
+        failed = failed,
+        "Finished posting due events"
+    );
     Ok((posted, failed))
 }
 
