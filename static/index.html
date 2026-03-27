@@ -349,20 +349,40 @@
                     document.getElementById('pendingAlert').style.display = 'block';
                     document.getElementById('pendingCount').textContent = pending.total_pending;
 
-                    // Show upcoming events
+                    // Show unsigned events needing signature
                     const eventsHtml = pending.events_to_sign.slice(0, 7).map(e => `
                         <div class="event-item">
                             <div>
                                 <div class="text-sm">${new Date(e.scheduled_for).toLocaleString()}</div>
                                 <div class="text-muted text-sm">${e.content.slice(0, 40)}${e.content.length > 40 ? '...' : ''}</div>
                             </div>
-                            <span class="event-status pending">Pending</span>
+                            <span class="event-status pending">Needs Signing</span>
                         </div>
                     `).join('');
                     document.getElementById('upcomingEvents').innerHTML = eventsHtml;
                 } else {
                     document.getElementById('pendingAlert').style.display = 'none';
-                    document.getElementById('upcomingEvents').innerHTML = '<p class="text-sm text-muted">All posts are signed! ✓</p>';
+
+                    // Fetch signed events from debug endpoint to show scheduled times
+                    try {
+                        const debug = await api('/debug/status');
+                        if (debug.pending_events && debug.pending_events.length > 0) {
+                            const eventsHtml = debug.pending_events.slice(0, 7).map(e => `
+                                <div class="event-item">
+                                    <div>
+                                        <div class="text-sm">${new Date(e.scheduled_for).toLocaleString()}</div>
+                                        <div class="text-muted text-sm">${e.content_preview.slice(0, 40)}${e.content_preview.length > 40 ? '...' : ''}</div>
+                                    </div>
+                                    <span class="event-status signed">${e.is_due ? '🕐 Due' : '✓ Signed'}</span>
+                                </div>
+                            `).join('');
+                            document.getElementById('upcomingEvents').innerHTML = eventsHtml;
+                        } else {
+                            document.getElementById('upcomingEvents').innerHTML = '<p class="text-sm text-muted">No scheduled posts</p>';
+                        }
+                    } catch (debugErr) {
+                        document.getElementById('upcomingEvents').innerHTML = '<p class="text-sm text-muted">All posts are signed! ✓</p>';
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load event status:', e);
