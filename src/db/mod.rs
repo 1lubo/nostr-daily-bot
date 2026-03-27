@@ -1,4 +1,4 @@
-//! Database module for SQLite persistence.
+//! Database module for PostgreSQL persistence.
 
 pub mod challenges;
 pub mod history;

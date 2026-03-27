@@ -2,37 +2,48 @@
 # Nostr Daily Bot - Docker Compose
 # ============================================================================
 # Usage:
-#   Development:  docker compose up
-#   Production:   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   docker compose up
 # ============================================================================
 
 services:
+  db:
+    image: postgres:15
+    container_name: nostr-daily-bot-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=nostr
+      - POSTGRES_PASSWORD=nostr
+      - POSTGRES_DB=nostr_daily_bot
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nostr -d nostr_daily_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   bot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: nostr-daily-bot
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
 
-    # Expose web UI port
     ports:
       - "3000:3000"
 
-    # Persist SQLite database
-    volumes:
-      - bot-data:/home/nostr/.local/share/nostr-daily-bot
-
-    # Environment variables
     environment:
+      - DATABASE_URL=postgres://nostr:nostr@db/nostr_daily_bot
       - RUST_LOG=${RUST_LOG:-info}
       - LOG_FORMAT=${LOG_FORMAT:-pretty}
 
-    # Optional: use .env file for secrets
     env_file:
       - path: .env
         required: false
 
-    # Resource limits (adjust as needed)
     deploy:
       resources:
         limits:
@@ -42,21 +53,18 @@ services:
           memory: 32M
           cpus: '0.1'
 
-    # Logging configuration
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-    # Security: drop all capabilities
     cap_drop:
       - ALL
 
-    # Security: no privilege escalation
     security_opt:
       - no-new-privileges:true
 
 volumes:
-  bot-data:
+  db-data:
 
