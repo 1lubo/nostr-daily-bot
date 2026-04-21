@@ -7,6 +7,5 @@ pub mod client;
 pub mod error;
 pub mod webhook;
 
-pub use client::{BTCPayClient, InvoiceResponse};
-pub use error::{BTCPayError, Result};
+pub use client::BTCPayClient;
 pub use webhook::{verify_signature, WebhookEventType, WebhookPayload};

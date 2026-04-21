@@ -53,8 +53,10 @@ pub enum WebhookEventType {
 }
 
 /// Webhook payload from BTCPay Server.
+/// Fields are parsed from JSON - some may not be directly used but are needed for deserialization.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct WebhookPayload {
     /// The invoice ID
     pub invoice_id: String,
@@ -66,14 +68,6 @@ pub struct WebhookPayload {
     /// Additional metadata (if any)
     #[serde(default)]
     pub metadata: serde_json::Value,
-}
-
-/// Payment method information from webhook.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PaymentMethodInfo {
-    /// Payment method (e.g., "BTC-LightningNetwork", "BTC")
-    pub payment_method: Option<String>,
 }
 
 #[cfg(test)]
@@ -100,7 +94,7 @@ mod tests {
         let payload = b"test payload";
         let header = "sha256=invalid";
 
-        assert!(verify_signature(payload, &header, secret).is_err());
+        assert!(verify_signature(payload, header, secret).is_err());
     }
 
     #[test]

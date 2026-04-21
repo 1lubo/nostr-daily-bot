@@ -60,10 +60,7 @@ pub struct TipStatusResponse {
     pub paid_at: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub struct TipStatusQuery {
-    pub invoice_id: String,
-}
+
 
 #[derive(Serialize)]
 pub struct TipConfigResponse {

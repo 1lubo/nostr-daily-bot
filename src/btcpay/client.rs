@@ -55,9 +55,11 @@ pub struct CheckoutOptions {
     pub default_payment_method: Option<String>,
 }
 
-/// Response from creating an invoice.
+/// Response from BTCPay invoice creation.
+/// Fields are parsed from JSON - some may not be directly used but are needed for deserialization.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct InvoiceResponse {
     /// Invoice ID
     pub id: String,
@@ -74,9 +76,7 @@ pub struct InvoiceResponse {
 impl BTCPayClient {
     /// Create a new BTCPay client.
     pub fn new(config: BTCPayConfig) -> Result<Self> {
-        config
-            .validate()
-            .map_err(|e| BTCPayError::Config(e))?;
+        config.validate().map_err(BTCPayError::Config)?;
 
         let http = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -157,38 +157,6 @@ impl BTCPayClient {
             amount = %invoice.amount,
             "Invoice created successfully"
         );
-
-        Ok(invoice)
-    }
-
-    /// Get invoice status.
-    #[instrument(skip(self))]
-    pub async fn get_invoice(&self, invoice_id: &str) -> Result<InvoiceResponse> {
-        let url = format!(
-            "{}/api/v1/stores/{}/invoices/{}",
-            self.config.base_url, self.config.store_id, invoice_id
-        );
-
-        let response = self
-            .http
-            .get(&url)
-            .header("Authorization", format!("token {}", self.config.api_key))
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(BTCPayError::Api {
-                status: status.as_u16(),
-                message: error_text,
-            });
-        }
-
-        let invoice: InvoiceResponse = response
-            .json()
-            .await
-            .map_err(|e| BTCPayError::InvalidResponse(e.to_string()))?;
 
         Ok(invoice)
     }

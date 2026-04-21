@@ -7,6 +7,7 @@ use sqlx::{FromRow, PgPool};
 
 /// Payment status values.
 pub mod status {
+    #[allow(dead_code)]
     pub const PENDING: &str = "pending";
     pub const PAID: &str = "paid";
     pub const EXPIRED: &str = "expired";
