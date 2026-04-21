@@ -25,7 +25,9 @@ impl fmt::Display for BTCPayError {
                 write!(f, "BTCPay API error ({}): {}", status, message)
             }
             BTCPayError::InvalidResponse(msg) => write!(f, "Invalid response: {}", msg),
-            BTCPayError::WebhookVerificationFailed => write!(f, "Webhook signature verification failed"),
+            BTCPayError::WebhookVerificationFailed => {
+                write!(f, "Webhook signature verification failed")
+            }
             BTCPayError::Config(msg) => write!(f, "Configuration error: {}", msg),
         }
     }

@@ -60,8 +60,6 @@ pub struct TipStatusResponse {
     pub paid_at: Option<String>,
 }
 
-
-
 #[derive(Serialize)]
 pub struct TipConfigResponse {
     /// Whether tipping is enabled
@@ -100,7 +98,10 @@ pub struct MessageResponse {
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<MessageResponse>)>;
 
-fn api_error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json<MessageResponse>) {
+fn api_error(
+    status: StatusCode,
+    message: impl Into<String>,
+) -> (StatusCode, Json<MessageResponse>) {
     (
         status,
         Json(MessageResponse {
@@ -116,7 +117,11 @@ fn api_error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Jso
 /// Get tipping configuration (whether enabled, default amount, etc.)
 pub async fn get_tip_config(State(state): State<SharedState>) -> Json<TipConfigResponse> {
     let (enabled, btcpay_url, default_amount_sats) = if let Some(ref btcpay) = state.btcpay {
-        (true, Some(btcpay.base_url().to_string()), btcpay.default_tip_sats())
+        (
+            true,
+            Some(btcpay.base_url().to_string()),
+            btcpay.default_tip_sats(),
+        )
     } else {
         (false, None, 5000)
     };
@@ -134,16 +139,23 @@ pub async fn create_tip(
     Json(req): Json<CreateTipRequest>,
 ) -> ApiResult<CreateTipResponse> {
     // Check if BTCPay is configured
-    let btcpay = state.btcpay.as_ref().ok_or_else(|| {
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "Tipping is not configured")
-    })?;
+    let btcpay = state
+        .btcpay
+        .as_ref()
+        .ok_or_else(|| api_error(StatusCode::SERVICE_UNAVAILABLE, "Tipping is not configured"))?;
 
     // Validate amount
     if req.amount_sats < 100 {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Minimum tip is 100 sats"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Minimum tip is 100 sats",
+        ));
     }
     if req.amount_sats > 10_000_000 {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Maximum tip is 10,000,000 sats"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "Maximum tip is 10,000,000 sats",
+        ));
     }
 
     // Get user npub if token provided
@@ -157,8 +169,8 @@ pub async fn create_tip(
     let order_id = format!("tip-{}", uuid::Uuid::new_v4());
 
     // Build redirect URL
-    let redirect_url = env::var("PUBLIC_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}", state.port));
+    let redirect_url =
+        env::var("PUBLIC_URL").unwrap_or_else(|_| format!("http://localhost:{}", state.port));
     let redirect_url = format!("{}/tip/success", redirect_url);
 
     // Create BTCPay invoice
@@ -206,9 +218,10 @@ pub async fn tip_webhook(
     body: Bytes,
 ) -> ApiResult<MessageResponse> {
     // Check if BTCPay is configured
-    let btcpay = state.btcpay.as_ref().ok_or_else(|| {
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "Tipping is not configured")
-    })?;
+    let btcpay = state
+        .btcpay
+        .as_ref()
+        .ok_or_else(|| api_error(StatusCode::SERVICE_UNAVAILABLE, "Tipping is not configured"))?;
 
     // Get signature header
     let signature = headers
@@ -343,10 +356,12 @@ pub async fn admin_payments(
             api_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
         })?;
 
-    let total_tips_sats = payments::get_total_tips_sats(&state.db).await.map_err(|e| {
-        error!("Failed to get total tips: {}", e);
-        api_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
-    })?;
+    let total_tips_sats = payments::get_total_tips_sats(&state.db)
+        .await
+        .map_err(|e| {
+            error!("Failed to get total tips: {}", e);
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+        })?;
 
     Ok(Json(AdminPaymentsResponse {
         payments,

@@ -103,10 +103,7 @@ pub async fn create_payment(pool: &PgPool, input: CreatePaymentInput) -> Result<
 }
 
 /// Get a payment by BTCPay invoice ID.
-pub async fn get_payment_by_invoice_id(
-    pool: &PgPool,
-    invoice_id: &str,
-) -> Result<Option<Payment>> {
+pub async fn get_payment_by_invoice_id(pool: &PgPool, invoice_id: &str) -> Result<Option<Payment>> {
     let row: Option<PaymentRow> = sqlx::query_as(
         r#"
         SELECT id, btcpay_invoice_id, user_npub, payment_type, amount_sats, message,

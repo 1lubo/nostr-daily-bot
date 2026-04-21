@@ -25,8 +25,8 @@ pub fn verify_signature(payload: &[u8], signature_header: &str, secret: &str) ->
         hex::decode(signature_hex).map_err(|_| BTCPayError::WebhookVerificationFailed)?;
 
     // Compute HMAC-SHA256 of the payload
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| BTCPayError::WebhookVerificationFailed)?;
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| BTCPayError::WebhookVerificationFailed)?;
     mac.update(payload);
 
     // Verify the signature (constant-time comparison)
