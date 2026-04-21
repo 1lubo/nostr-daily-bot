@@ -1,5 +1,7 @@
-//! Configuration module - placeholder for future use.
+//! Configuration module for the application.
 //!
-//! Note: The original TOML-based configuration has been replaced by
-//! the web UI and persistence layer. This module is kept for potential
-//! future configuration needs.
+//! Contains configuration structs loaded from environment variables.
+
+pub mod btcpay;
+
+pub use btcpay::BTCPayConfig;
