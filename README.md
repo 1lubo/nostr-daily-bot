@@ -9,6 +9,7 @@ A multi-user bot that posts scheduled messages to Nostr relays. Authenticate sec
 - ⏰ **Cron Scheduling** - Flexible scheduling with cron expressions
 - 🌐 **Web UI** - Simple interface for managing quotes and schedules
 - 🔄 **Multi-user** - Each user has their own quotes, schedule, and history
+- ⚡ **Bitcoin Tipping** - Accept tips via Lightning or on-chain using BTCPay Server
 
 ## Quick Start
 
@@ -44,10 +45,34 @@ Open http://localhost:3000 in your browser.
 
 ## Configuration
 
+### Core Settings
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `RUST_LOG` | No | Log level: error, warn, info (default), debug, trace |
+| `PUBLIC_URL` | No | Base URL for redirects (e.g., `https://yourdomain.com`) |
+
+### BTCPay Server Integration (Optional)
+
+Enable Bitcoin/Lightning tipping by connecting to a BTCPay Server instance:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BTCPAY_BASE_URL` | For tipping | BTCPay Server URL (e.g., `https://mainnet.demo.btcpayserver.org`) |
+| `BTCPAY_API_KEY` | For tipping | API key with invoice permissions |
+| `BTCPAY_STORE_ID` | For tipping | Store ID from BTCPay |
+| `BTCPAY_WEBHOOK_SECRET` | For tipping | Webhook secret for signature verification |
+| `BTCPAY_DEFAULT_TIP_SATS` | No | Default tip amount (default: 5000 sats) |
+| `ADMIN_TOKEN` | No | Token to access `/api/admin/payments` endpoint |
+
+**Setup steps:**
+1. Create a store in BTCPay Server
+2. Generate an API key: Account → API Keys → Create (enable invoice permissions)
+3. Create a webhook: Store → Settings → Webhooks → Create
+   - URL: `https://yourdomain.com/api/tips/webhook`
+   - Events: `InvoiceSettled`, `InvoiceExpired`, `InvoiceInvalid`
+4. Copy the webhook secret and set `BTCPAY_WEBHOOK_SECRET`
 
 ## Usage
 
