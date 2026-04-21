@@ -48,6 +48,7 @@ async fn run_migrations(pool: &PgPool) -> Result<()> {
     let migrations = [
         include_str!("../../migrations/001_initial.sql"),
         include_str!("../../migrations/002_presigning.sql"),
+        include_str!("../../migrations/003_payments.sql"),
     ];
 
     for (i, migration_sql) in migrations.iter().enumerate() {
