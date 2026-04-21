@@ -4,6 +4,7 @@
 
 mod api;
 mod auth;
+mod btcpay;
 mod cli;
 mod config;
 mod db;
