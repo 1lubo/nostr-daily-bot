@@ -40,23 +40,16 @@ pub async fn init_db() -> Result<DbPool> {
     Ok(pool)
 }
 
-/// Run database migrations.
+/// Run database migrations using SQLx's built-in migration system.
+/// Migrations are automatically discovered from the `migrations/` directory
+/// and tracked in the `_sqlx_migrations` table to prevent re-running.
 async fn run_migrations(pool: &PgPool) -> Result<()> {
     info!("Running database migrations");
 
-    // Run all migrations in order
-    let migrations = [
-        include_str!("../../migrations/001_initial.sql"),
-        include_str!("../../migrations/002_presigning.sql"),
-        include_str!("../../migrations/003_payments.sql"),
-    ];
-
-    for (i, migration_sql) in migrations.iter().enumerate() {
-        sqlx::raw_sql(migration_sql)
-            .execute(pool)
-            .await
-            .with_context(|| format!("Failed to run migration {}", i + 1))?;
-    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .context("Failed to run database migrations")?;
 
     info!("Migrations complete");
     Ok(())
