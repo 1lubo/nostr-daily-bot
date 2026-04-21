@@ -21,9 +21,11 @@ use anyhow::Result;
 use axum::{routing::get, Router};
 use clap::Parser;
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 
+use crate::btcpay::BTCPayClient;
 use crate::cli::{Cli, Commands};
+use crate::config::BTCPayConfig;
 use crate::db::init_db;
 use crate::observability::{init_logging, ObservabilityConfig};
 use crate::state::{AppState, SharedState};
@@ -50,8 +52,26 @@ async fn run_server(port: u16) -> Result<()> {
     let db = init_db().await?;
     info!("Database initialized");
 
+    // Initialize BTCPay client (optional - tipping feature)
+    let btcpay = match BTCPayConfig::from_env() {
+        Some(config) => match BTCPayClient::new(config) {
+            Ok(client) => {
+                info!("BTCPay tipping enabled");
+                Some(client)
+            }
+            Err(e) => {
+                warn!("BTCPay configuration invalid, tipping disabled: {}", e);
+                None
+            }
+        },
+        None => {
+            info!("BTCPay not configured, tipping disabled");
+            None
+        }
+    };
+
     // Create app state
-    let state: SharedState = Arc::new(AppState::new(db.clone(), port));
+    let state: SharedState = Arc::new(AppState::new(db.clone(), port, btcpay));
 
     // Start background scheduler for pre-signed events
     let db_for_scheduler = db.clone();

@@ -7,7 +7,7 @@ use axum::{
 
 use crate::state::SharedState;
 
-use super::handlers;
+use super::{handlers, tips};
 
 /// Create the API router with all endpoints.
 pub fn create_router(state: SharedState) -> Router {
@@ -33,6 +33,13 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/post", post(handlers::post_now))
         // Cron webhook for external schedulers (serverless-friendly)
         .route("/api/cron/post", get(handlers::cron_post_due))
+        // Tipping endpoints
+        .route("/api/tips/config", get(tips::get_tip_config))
+        .route("/api/tips/create", post(tips::create_tip))
+        .route("/api/tips/webhook", post(tips::tip_webhook))
+        .route("/api/tips/status/{invoice_id}", get(tips::get_tip_status))
+        // Admin endpoints
+        .route("/api/admin/payments", get(tips::admin_payments))
         // Debug endpoint
         .route("/api/debug/status", get(handlers::debug_status))
         .with_state(state)

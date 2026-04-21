@@ -6,6 +6,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::RwLock;
 
+use crate::btcpay::BTCPayClient;
 use crate::db::DbPool;
 use crate::nostr::NostrClient;
 use crate::scheduler::Scheduler;
@@ -25,6 +26,8 @@ pub struct AppState {
     pub schedulers: RwLock<HashMap<String, Scheduler>>,
     /// Port the server is running on.
     pub port: u16,
+    /// BTCPay client (None if tipping is not configured).
+    pub btcpay: Option<BTCPayClient>,
 }
 
 /// Active session state (when user has entered nsec).
@@ -54,13 +57,14 @@ pub struct PresignSession {
 
 impl AppState {
     /// Create new app state.
-    pub fn new(db: DbPool, port: u16) -> Self {
+    pub fn new(db: DbPool, port: u16, btcpay: Option<BTCPayClient>) -> Self {
         Self {
             db,
             sessions: RwLock::new(HashMap::new()),
             presign_sessions: RwLock::new(HashMap::new()),
             schedulers: RwLock::new(HashMap::new()),
             port,
+            btcpay,
         }
     }
 
