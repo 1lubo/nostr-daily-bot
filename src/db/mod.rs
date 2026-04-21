@@ -2,6 +2,7 @@
 
 pub mod challenges;
 pub mod history;
+pub mod payments;
 mod pool;
 pub mod quotes;
 pub mod signed_events;

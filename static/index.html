@@ -63,6 +63,17 @@
         .event-status.pending { background: #f59e0b; }
         .progress-bar { height: 4px; background: #333; border-radius: 2px; overflow: hidden; margin-top: 8px; }
         .progress-bar .fill { height: 100%; background: #6366f1; transition: width 0.3s; }
+        /* Tipping styles */
+        .tip-section { background: linear-gradient(135deg, #1e3a5f 0%, #16213e 100%); border: 1px solid #f7931a; }
+        .tip-section h2 { color: #f7931a; }
+        .tip-amount-input { width: 120px; text-align: right; }
+        .tip-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-bitcoin { background: #f7931a; color: #000; font-weight: bold; }
+        .btn-lightning { background: #9b59b6; color: white; }
+        .tip-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #16213e; padding: 10px;
+                      text-align: center; border-top: 1px solid #333; display: none; }
+        .tip-success { background: #065f46; padding: 16px; border-radius: 8px; text-align: center; }
+        .tip-success h3 { color: #4ade80; margin-bottom: 8px; }
     </style>
 </head>
 <body>
@@ -169,11 +180,55 @@
         <div id="postResult" class="mt-2" style="display:none;"></div>
     </div>
 
+    <!-- Support / Tipping Section -->
+    <div class="card tip-section" id="tipSection" style="display:none;">
+        <h2>⚡ Support This Bot</h2>
+        <p class="text-sm text-muted mb-2">Help keep this bot running! Tips are appreciated.</p>
+
+        <div class="row mb-2">
+            <span class="text-muted">Amount:</span>
+            <input type="number" id="tipAmount" class="tip-amount-input" value="5000" min="100" max="10000000">
+            <span class="text-muted">sats</span>
+        </div>
+
+        <div class="mb-2">
+            <label class="text-sm text-muted">Message (optional):</label>
+            <input type="text" id="tipMessage" placeholder="Thanks for the great bot!" class="mt-2">
+        </div>
+
+        <div class="tip-buttons">
+            <button class="btn-lightning" onclick="createTip(true)" id="tipModalBtn">⚡ Pay with Lightning</button>
+            <button class="btn-bitcoin" onclick="createTip(false)" id="tipRedirectBtn">₿ Pay (redirect)</button>
+        </div>
+
+        <p class="text-sm text-muted mt-2" id="tipStatus"></p>
+    </div>
+
+    <!-- Tip Success Message (shown after redirect back) -->
+    <div class="card" id="tipSuccessSection" style="display:none;">
+        <div class="tip-success">
+            <h3>🎉 Thank You!</h3>
+            <p>Your tip has been received. We appreciate your support!</p>
+            <button class="btn-secondary mt-2" onclick="closeTipSuccess()">Close</button>
+        </div>
+    </div>
+
+    <!-- Floating tip widget (footer) -->
+    <div class="tip-footer" id="tipFooter">
+        <button class="btn-lightning btn-sm" onclick="scrollToTip()">☕ Like this bot? Leave a tip ⚡</button>
+    </div>
+
+    <!-- BTCPay modal script (loaded dynamically) -->
+    <script id="btcpayScript"></script>
+
     <script>
         // Session state
         let sessionToken = localStorage.getItem('sessionToken') || null;
         let userNpub = localStorage.getItem('userNpub') || null;
         let authMode = localStorage.getItem('authMode') || null;
+
+        // Tipping state
+        let tipConfig = { enabled: false, btcpay_url: null, default_amount_sats: 5000 };
 
         // Check for NIP-07 extension
         function hasNostrExtension() {
@@ -212,6 +267,89 @@
             // This is a simplified version - in production use a proper library
             // For now we'll request it from server via the challenge response
             return hex;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Tipping Functions
+        // ─────────────────────────────────────────────────────────────────────
+
+        async function loadTipConfig() {
+            try {
+                tipConfig = await api('/tips/config');
+                if (tipConfig.enabled) {
+                    document.getElementById('tipSection').style.display = 'block';
+                    document.getElementById('tipFooter').style.display = 'block';
+                    document.getElementById('tipAmount').value = tipConfig.default_amount_sats;
+                    // Load BTCPay modal script
+                    if (tipConfig.btcpay_url) {
+                        const script = document.getElementById('btcpayScript');
+                        script.src = tipConfig.btcpay_url + '/modal/btcpay.js';
+                    }
+                }
+            } catch (e) {
+                console.log('Tipping not available:', e.message);
+            }
+        }
+
+        async function createTip(useModal) {
+            const amount = parseInt(document.getElementById('tipAmount').value);
+            const message = document.getElementById('tipMessage').value || null;
+            const statusEl = document.getElementById('tipStatus');
+
+            if (amount < 100) {
+                showMessage('Minimum tip is 100 sats', 'error');
+                return;
+            }
+            if (amount > 10000000) {
+                showMessage('Maximum tip is 10,000,000 sats', 'error');
+                return;
+            }
+
+            statusEl.textContent = 'Creating invoice...';
+            document.getElementById('tipModalBtn').disabled = true;
+            document.getElementById('tipRedirectBtn').disabled = true;
+
+            try {
+                const body = { amount_sats: amount, message };
+                if (sessionToken) body.token = sessionToken;
+
+                const data = await api('/tips/create', {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+
+                statusEl.textContent = '';
+
+                if (useModal && typeof btcpay !== 'undefined') {
+                    btcpay.showInvoice(data.invoice_id);
+                } else {
+                    window.location.href = data.checkout_url;
+                }
+            } catch (e) {
+                statusEl.textContent = '';
+                showMessage('Failed to create tip: ' + e.message, 'error');
+            } finally {
+                document.getElementById('tipModalBtn').disabled = false;
+                document.getElementById('tipRedirectBtn').disabled = false;
+            }
+        }
+
+        function scrollToTip() {
+            document.getElementById('tipSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function checkTipSuccess() {
+            // Check if we're returning from a successful tip
+            const url = new URL(window.location.href);
+            if (url.pathname === '/tip/success' || url.searchParams.has('tip_success')) {
+                document.getElementById('tipSuccessSection').style.display = 'block';
+                // Clean URL
+                window.history.replaceState({}, '', '/');
+            }
+        }
+
+        function closeTipSuccess() {
+            document.getElementById('tipSuccessSection').style.display = 'none';
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -499,7 +637,12 @@
                     body: JSON.stringify({ token: sessionToken, quotes })
                 });
                 document.getElementById('quotesTextarea').value = '';
-                showMessage(`Uploaded ${quotes.length} quotes!`);
+                // Show success with tip prompt if tipping is enabled
+                if (tipConfig.enabled) {
+                    showMessage(`Uploaded ${quotes.length} quotes! Consider leaving a tip ⚡`);
+                } else {
+                    showMessage(`Uploaded ${quotes.length} quotes!`);
+                }
                 loadQuotes();
                 if (authMode === 'presign') loadEventStatus();
             } catch (e) {
@@ -617,6 +760,8 @@
         checkExtension();
         updateUI();
         loadQuotes();
+        loadTipConfig();
+        checkTipSuccess();
 
         // Periodic refresh
         setInterval(() => {
