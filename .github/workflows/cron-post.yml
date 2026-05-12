@@ -1,11 +1,19 @@
 name: Cron Post Due Events
 
+# DISABLED: Workflow temporarily disabled
+# on:
+#   schedule:
+#     # Run every 5 minutes
+#     - cron: '*/5 * * * *'
+#   # Allow manual trigger for testing
+#   workflow_dispatch:
+
 on:
-  schedule:
-    # Run every 5 minutes
-    - cron: '*/5 * * * *'
-  # Allow manual trigger for testing
   workflow_dispatch:
+    inputs:
+      note:
+        description: 'Workflow is disabled - manual trigger only'
+        required: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
